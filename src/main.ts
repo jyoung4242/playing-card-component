@@ -18,6 +18,7 @@ const game = new Engine({
   displayMode: DisplayMode.Fixed, // the display mode
   pixelArt: true,
   backgroundColor: Color.White,
+  suppressPlayButton: true,
 });
 
 await game.start(loader);

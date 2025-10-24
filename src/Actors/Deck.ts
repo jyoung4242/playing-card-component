@@ -17,6 +17,9 @@ import { PlayingHand } from "./PlayingHand";
 export class PlayingDeck extends Actor {
   deckComponent: CardDeckComponent | null = null;
 
+  latchLeftClick: boolean = false;
+  latchRightClick: boolean = false;
+
   constructor(pos: Vector) {
     super({ pos, scale: vec(3, 3) });
   }
@@ -39,6 +42,8 @@ export class PlayingDeck extends Actor {
       if (!this.deckComponent) return;
 
       if (evt.button == PointerButton.Left) {
+        if (this.latchLeftClick) return;
+        this.latchLeftClick = true;
         //draw card from deck and place in hand
         let hand = engine.currentScene.entities.find(e => e.has(CardHandComponent));
         if (!hand) return;
@@ -78,7 +83,10 @@ export class PlayingDeck extends Actor {
             drawnCardComponent.status = CardStatus.InHand;
             drawnCardComponent.isOwnedBy = hand.id;
           });
+        this.latchLeftClick = false;
       } else if (evt.button == PointerButton.Right) {
+        if (this.latchRightClick) return;
+        this.latchRightClick = true;
         let stack = engine.currentScene.entities.find(e => e.has(TableStackComponent));
         let zone = engine.currentScene.entities.find(e => e.has(TableZoneComponent)) as Actor;
         if (!stack) return;
@@ -120,6 +128,7 @@ export class PlayingDeck extends Actor {
             drawnCardComponent.status = CardStatus.InStack;
             drawnCardComponent.isOwnedBy = stack.id;
           });
+        this.latchRightClick = false;
       }
     });
 

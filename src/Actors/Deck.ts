@@ -45,12 +45,12 @@ export class PlayingDeck extends Actor {
         let handComponent = hand.get(CardHandComponent);
         if (!handComponent) return;
         if (handComponent.canTakeCard() === false) return;
-
-        // let nextCardPosition = handComponent.getNextCardPosition();
         // get the top card from the deck and place it in the hand
         let cards = this.deckComponent.drawCards();
         if (!cards) return;
+
         let drawnCard = cards[0] as PlayingCard;
+        handComponent.setDestination(drawnCard);
 
         // remove card from deck
         const topCardPosition = this.deckComponent.getTopCardPosition();
@@ -58,8 +58,7 @@ export class PlayingDeck extends Actor {
         drawnCard.z = 10000;
         scene.add(drawnCard);
 
-        //let handScreenPosition = (hand as ScreenElement).pos.clone();
-        let handScreenPosition = (hand as PlayingHand).getHand().getNextCardPosition();
+        let handScreenPosition = handComponent.getNextCardPosition();
         let nextPosition = vec(handScreenPosition.x, handScreenPosition.y).add((hand as PlayingHand).pos);
 
         drawnCard.actions
@@ -80,8 +79,6 @@ export class PlayingDeck extends Actor {
             drawnCardComponent.isOwnedBy = hand.id;
           });
       } else if (evt.button == PointerButton.Right) {
-        console.log("right click", performance.now());
-
         let stack = engine.currentScene.entities.find(e => e.has(TableStackComponent));
         let zone = engine.currentScene.entities.find(e => e.has(TableZoneComponent)) as Actor;
         if (!stack) return;
@@ -91,20 +88,21 @@ export class PlayingDeck extends Actor {
         if (!zone) return;
         let zoneComponent = zone.get(TableZoneComponent);
         if (!zoneComponent) return;
-
         let cards = this.deckComponent.drawCards();
         if (!cards) return;
 
         let drawnCard = cards[0] as PlayingCard;
+        stackComponent.setDestination(drawnCard);
 
         // remove card from deck
         const topCardPosition = this.deckComponent.getTopCardPosition();
-
         drawnCard.pos = this.pos.add(topCardPosition);
         drawnCard.z = 10000;
         scene.add(drawnCard);
 
-        let nextPosition = stackComponent.getNextCardPosition().add(zone.pos);
+        let stackPosition = stackComponent.getNextCardPosition();
+        let nextPosition = vec(stackPosition.x, stackPosition.y).add(zone.pos);
+
         drawnCard.actions
           .runAction(
             coroutineAction(moveAndFlipCard, {

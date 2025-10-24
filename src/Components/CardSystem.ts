@@ -293,8 +293,12 @@ export class CardDeckComponent extends Component {
   getTopCardPosition(): Vector {
     let x = 0;
     let y = 0;
-    x = this._deckSize * (this._cardThickness * this._stackDirection.x);
-    y = this._deckSize * (this._cardThickness * this._stackDirection.y);
+
+    x = this._cards.length * (this._cardThickness * this._stackDirection.x);
+    y = this._cards.length * (this._cardThickness * this._stackDirection.y);
+
+    // x = this._deckSize * (this._cardThickness * this._stackDirection.x);
+    // y = this._deckSize * (this._cardThickness * this._stackDirection.y);
     return new Vector(x, y);
   }
 
@@ -417,23 +421,24 @@ export class CardHandComponent extends Component {
   }
 
   addCard(card: Actor) {
+    // Make card a child of the hand entity
+    if (this.owner && card.parent !== this.owner) {
+      this.owner.addChild(card);
+      this._dirtyFlag = true;
+    }
+  }
+
+  addCards(cards: Actor[]) {
+    cards.forEach(card => this.addCard(card));
+  }
+
+  setDestination(card: Actor) {
     if (this._cards.length >= this.maxCards) {
       console.warn("Hand is full, cannot add more cards");
       return;
     }
 
     this._cards.push(card);
-
-    // Make card a child of the hand entity
-    if (this.owner && card.parent !== this.owner) {
-      this.owner.addChild(card);
-    }
-
-    this._dirtyFlag = true;
-  }
-
-  addCards(cards: Actor[]) {
-    cards.forEach(card => this.addCard(card));
   }
 
   removeCard(card: Actor) {
@@ -482,13 +487,8 @@ export class CardHandComponent extends Component {
 
   useFanLayout() {
     const cardCount = this._cards.length;
-    console.log(cardCount, this._cards);
-
     this._cards.forEach((card, index) => {
       const pos: { x: number; y: number; rotation: number; z: number } = this.calculateFanPosition(index, cardCount);
-      // Set relative position (relative to hand entity)
-      //card.pos.x = pos.x;
-      //card.pos.y = pos.y;
       card.actions.moveTo({ pos: vec(pos.x, pos.y), duration: 300 });
       card.rotation = pos.rotation;
       card.z = pos.z;
@@ -566,7 +566,7 @@ export class CardHandComponent extends Component {
     }
 
     // Calculate angle for this card based on per-card separation
-    const middleIndex = (totalCards - 1) / 2;
+    // const middleIndex = (totalCards - 1) / 2;
 
     let angle: number;
     if (totalCards === 1) {
@@ -592,19 +592,6 @@ export class CardHandComponent extends Component {
 
     // Z-index: left to right, so rightmost cards overlap leftmost
     const z = index;
-
-    // Logging
-    console.log(`Card ${index + 1}/${totalCards}:`, {
-      angleDegrees: angle.toFixed(2) + "°",
-      angleRadians: angleRad.toFixed(3),
-      position: { x: x.toFixed(2), y: y.toFixed(2) },
-      rotation: angleRad.toFixed(3) + " rad",
-      z,
-      middleIndex: middleIndex.toFixed(2),
-      perCardAngle: this.fanAngle + "°",
-      totalArcAngle: (this.fanAngle * (totalCards - 1)).toFixed(2) + "°",
-    });
-
     return { x, y, rotation, z };
   }
 
@@ -644,7 +631,6 @@ export class TableZoneComponent extends Component {
     // snap card to zone's position
     if (!this.owner) return;
     if (!(this.owner instanceof Actor || this.owner instanceof ScreenElement)) return;
-    console.log(this.owner.graphics.current?.width, this.owner.graphics.current?.height);
 
     card.pos = this.owner.pos.clone();
     this._cards.push(card);
@@ -740,12 +726,21 @@ export class TableStackComponent extends Component {
 
   // class utilities
   addCard(card: Actor) {
+    this.owner?.addChild(card);
+    this.dirtyFlag = true;
+  }
+
+  setDestination(card: Actor) {
     //validate card has card component
     let validCard = validateCard(card);
     if (!validCard) return;
+
+    if (this._maxCardCount !== 0 && this._cards.length >= this.maxVisible) {
+      console.warn("Stack is full, cannot add more cards");
+      return;
+    }
+
     this._cards.push(card);
-    this.owner?.addChild(card);
-    this.dirtyFlag = true;
   }
 
   addCards(cards: Actor[]) {
@@ -767,7 +762,7 @@ export class TableStackComponent extends Component {
     const owner = this.owner as Actor;
     if (!owner) return vec(0, 0);
     const basePos = owner.pos.clone();
-    const offsetAmount = this._offset.scale(this._cards.length);
+    const offsetAmount = this._offset.scale(this._cards.length - 1);
     return basePos.add(offsetAmount);
   }
 
@@ -1010,8 +1005,6 @@ export class FlipCardAction implements Action {
 
     // Simple flip at halfway point
     if (this._elapsed >= this._duration / 2 && !this._flipped) {
-      console.log("flipping card");
-
       const actor = this._entity as Actor | ScreenElement;
       //@ts-ignore
       actor.getCard().isFaceUp = !actor.getCard().isFaceUp;
@@ -1107,7 +1100,6 @@ export function* moveAndFlipCard(
 
     // Simple flip at halfway point
     if (elapsedTime >= ctx.duration / 2 && !flipped) {
-      console.log("flipping card");
       //@ts-ignore
       let cardComponent = actor.getCard();
       //@ts-ignore

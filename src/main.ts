@@ -11,7 +11,7 @@ import { PlayingHand } from "./Actors/PlayingHand";
 
 await UI.create(document.body, model, template).attached;
 
-const game = new Engine({
+export const game = new Engine({
   width: 800, // the width of the canvas
   height: 600, // the height of the canvas
   canvasElementId: "cnv", // the DOM canvas element ID, if you are providing your own

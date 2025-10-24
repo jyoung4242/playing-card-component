@@ -5,8 +5,6 @@ import {
   Sprite,
   System,
   SystemType,
-  Action,
-  nextActionId,
   ScreenElement,
   Vector,
   lerp,
@@ -17,6 +15,8 @@ import {
   Random,
   clamp,
 } from "excalibur";
+import { game } from "../main";
+import { coroutineAction } from "../Lib/CoroutineAction";
 
 /*
  * Type Definitions
@@ -199,7 +199,7 @@ export class CardComponent extends Component {
     let card = qualifyEntity(this.owner as Entity);
     if (!card) return;
     card = this.owner as ScreenElement | Actor;
-    card.actions.runAction(new FlipCardAction(this, card, duration));
+    card.actions.runAction(coroutineAction(flipCard, { duration, yoffset: 8 }));
   }
 
   set isOwned(value: boolean) {
@@ -727,6 +727,7 @@ export class TableStackComponent extends Component {
   // class utilities
   addCard(card: Actor) {
     this.owner?.addChild(card);
+    card.pos = this.getNextCardPosition();
     this.dirtyFlag = true;
   }
 
@@ -735,7 +736,7 @@ export class TableStackComponent extends Component {
     let validCard = validateCard(card);
     if (!validCard) return;
 
-    if (this._maxCardCount !== 0 && this._cards.length >= this.maxVisible) {
+    if (this._maxCardCount !== 0 && this._cards.length >= this._maxCardCount) {
       console.warn("Stack is full, cannot add more cards");
       return;
     }
@@ -772,7 +773,7 @@ export class TableStackComponent extends Component {
     // Only update positions if dirty flag is set
     if (!this._dirtyFlag) return;
 
-    const owner = this.owner as Actor;
+    let owner = this.owner as Actor;
     if (!owner) return;
 
     const basePos = owner.pos.clone();
@@ -780,9 +781,10 @@ export class TableStackComponent extends Component {
     // Loop through cards and reposition them
     this._cards.forEach((card, index) => {
       // Calculate position with offset
+      //confirm card is child of owner
+      if (card.parent !== this.owner) return;
       const offsetAmount = this._offset.scale(index);
       card.pos = basePos.add(offsetAmount);
-
       // Set z-index (higher index = higher z)
       card.z = owner.z + index + 1;
     });
@@ -948,115 +950,61 @@ export class TableSystem extends System {
 /**
  * Flips a card
  */
-export class FlipCardAction implements Action {
-  id = nextActionId();
-  private _complete = false;
-  private _flipped = false;
-  private _elapsed = 0;
-  private _duration: number;
-  private _card: CardComponent;
-  private _entity: Actor | ScreenElement;
-  private _originalXScale: number;
-  private _originalPos: Vector;
-  private _yoffsetFactor: number = 10;
+export function* flipCard(
+  actor: Actor | ScreenElement,
+  ctx: {
+    duration?: number; // Total animation duration in ms
+    yOffset?: number; // How much to lift card during flip
+  } = {}
+) {
+  const duration = ctx.duration ?? 200;
+  const yOffset = ctx.yOffset ?? 10;
 
-  constructor(card: CardComponent, entity: Actor | ScreenElement, duration = 200) {
-    this._card = card;
-    this._entity = entity;
-    this._duration = duration;
-    this._originalXScale = entity.scale.x;
-    this._originalPos = entity.pos.clone();
+  const startScaleX = actor.scale.x;
+  const startY = actor.pos.y;
+
+  let elapsedTime = 0;
+  let flipped = false;
+
+  // Get card component
+  const cardComp = actor.get(CardComponent);
+  if (!cardComp) {
+    console.warn("Actor does not have CardComponent");
+    return;
   }
 
-  isComplete(): boolean {
-    return this._complete;
-  }
+  const halfDuration = duration / 2;
 
-  reset(): void {
-    this._complete = false;
-    this._elapsed = 0;
-  }
+  while (elapsedTime < duration) {
+    const deltaTime: number = yield; // Get elapsed time since last frame
+    elapsedTime += deltaTime;
 
-  stop(): void {
-    this._complete = true;
-  }
+    if (!flipped) {
+      // First half: shrink and lift
+      const progress = Math.min(elapsedTime / halfDuration, 1);
+      actor.scale.x = startScaleX * (1 - progress);
+      actor.pos.y = lerp(startY, startY - yOffset, progress);
 
-  update(elapsed: number): void {
-    if (this._complete) return;
-
-    this._elapsed += elapsed;
-
-    if (!this._flipped) {
-      //shrink graphic
-      let halfDuration = this._duration / 2;
-      let scale = this._originalXScale * (1 - this._elapsed / halfDuration);
-      const actor = this._entity as Actor | ScreenElement;
-      actor.scale.x = scale;
-      actor.pos.y = lerp(this._originalPos.y, this._originalPos.y - this._yoffsetFactor, this._elapsed / halfDuration);
-    } else {
-      // grow graphic
-      const halfDuration = this._duration / 2;
-      const progress = (this._elapsed - halfDuration) / halfDuration;
-      const scale = this._originalXScale * progress;
-      const actor = this._entity as Actor | ScreenElement;
-      actor.scale.x = Math.min(scale, this._originalXScale); // clamp to full scale
-      actor.pos.y = lerp(this._originalPos.y - this._yoffsetFactor, this._originalPos.y, progress);
-    }
-
-    // Simple flip at halfway point
-    if (this._elapsed >= this._duration / 2 && !this._flipped) {
-      const actor = this._entity as Actor | ScreenElement;
-      //@ts-ignore
-      actor.getCard().isFaceUp = !actor.getCard().isFaceUp;
-      if (actor.graphics) {
-        actor.graphics.use(this._card.isFaceUp ? "cardFace" : "cardBack");
+      // Flip at halfway point
+      if (elapsedTime >= halfDuration) {
+        cardComp.isFaceUp = !cardComp.isFaceUp;
+        if (actor.graphics) {
+          actor.graphics.use(cardComp.isFaceUp ? "cardFace" : "cardBack");
+        }
+        flipped = true;
       }
-      this._flipped = true;
-    }
-
-    if (this._elapsed >= this._duration) {
-      this._complete = true;
+    } else {
+      // Second half: grow and lower
+      const progress = Math.min((elapsedTime - halfDuration) / halfDuration, 1);
+      actor.scale.x = startScaleX * progress;
+      actor.pos.y = lerp(startY - yOffset, startY, progress);
     }
   }
+
+  // Ensure final state
+  actor.scale.x = startScaleX;
+  actor.pos.y = startY;
 }
-
-/**
- * Stubbed in for now
- */
-// export class MoveandFlipCardAction implements Action {
-//   id = nextActionId();
-//   private _complete = false;
-//   private _elapsed = 0;
-//   private _duration: number;
-
-//   constructor(duration: number) {
-//     this._duration = duration;
-//   }
-
-//   isComplete(): boolean {
-//     return this._complete;
-//   }
-
-//   reset(): void {
-//     this._complete = false;
-//     this._elapsed = 0;
-//   }
-
-//   stop(): void {
-//     this._complete = true;
-//   }
-
-//   update(elapsed: number): void {
-//     if (this._complete) return;
-
-//     this._elapsed += elapsed;
-
-//     if (this._elapsed >= this._duration) {
-//       this._complete = true;
-//     }
-//   }
-// }
-
 export function* moveAndFlipCard(
   actor: Actor,
   ctx: {
@@ -1064,6 +1012,7 @@ export function* moveAndFlipCard(
     targetY: number;
     duration: number; // Total animation duration in ms
     flipDuration?: number; // Duration of flip animation in ms (defaults to half of duration)
+    debug?: boolean;
   }
 ) {
   const startX = actor.pos.x;
@@ -1099,6 +1048,9 @@ export function* moveAndFlipCard(
     }
 
     // Simple flip at halfway point
+    if (ctx.debug && elapsedTime >= ctx.duration / 2) {
+      game.debug.useTestClock();
+    }
     if (elapsedTime >= ctx.duration / 2 && !flipped) {
       //@ts-ignore
       let cardComponent = actor.getCard();

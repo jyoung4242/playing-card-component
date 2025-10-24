@@ -19,6 +19,7 @@ export class PlayingDeck extends Actor {
 
   latchLeftClick: boolean = false;
   latchRightClick: boolean = false;
+  rightclickCount: number = 0;
 
   constructor(pos: Vector) {
     super({ pos, scale: vec(3, 3) });
@@ -85,6 +86,7 @@ export class PlayingDeck extends Actor {
           });
         this.latchLeftClick = false;
       } else if (evt.button == PointerButton.Right) {
+        this.rightclickCount++;
         if (this.latchRightClick) return;
         this.latchRightClick = true;
         let stack = engine.currentScene.entities.find(e => e.has(TableStackComponent));
@@ -106,18 +108,16 @@ export class PlayingDeck extends Actor {
         const topCardPosition = this.deckComponent.getTopCardPosition();
         drawnCard.pos = this.pos.add(topCardPosition);
         drawnCard.z = 10000;
-        scene.add(drawnCard);
 
         let stackPosition = stackComponent.getNextCardPosition();
         let nextPosition = vec(stackPosition.x, stackPosition.y).add(zone.pos);
-
+        scene.add(drawnCard);
         drawnCard.actions
           .runAction(
             coroutineAction(moveAndFlipCard, {
               targetX: nextPosition.x - drawnCard.width / 2,
               targetY: nextPosition.y - drawnCard.height / 2,
-              speed: 750,
-              duration: 600,
+              duration: 750,
             })
           )
           .toPromise()

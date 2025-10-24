@@ -80,6 +80,8 @@ export class PlayingDeck extends Actor {
             drawnCardComponent.isOwnedBy = hand.id;
           });
       } else if (evt.button == PointerButton.Right) {
+        console.log("right click", performance.now());
+
         let stack = engine.currentScene.entities.find(e => e.has(TableStackComponent));
         let zone = engine.currentScene.entities.find(e => e.has(TableZoneComponent)) as Actor;
         if (!stack) return;
@@ -97,7 +99,6 @@ export class PlayingDeck extends Actor {
 
         // remove card from deck
         const topCardPosition = this.deckComponent.getTopCardPosition();
-        console.log("topCardPosition", topCardPosition);
 
         drawnCard.pos = this.pos.add(topCardPosition);
         drawnCard.z = 10000;
@@ -120,7 +121,6 @@ export class PlayingDeck extends Actor {
             let drawnCardComponent = drawnCard.getCard();
             drawnCardComponent.status = CardStatus.InStack;
             drawnCardComponent.isOwnedBy = stack.id;
-            console.log(zone, stack, drawnCard);
           });
       }
     });

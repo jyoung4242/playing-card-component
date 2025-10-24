@@ -164,7 +164,6 @@ export class CardComponent extends Component {
     // Add pointer hover logic
     card.on("pointerenter", () => {
       this._isHovered = true;
-      console.log("card hovered: ", card.id);
     });
 
     card.on("pointerleave", () => {

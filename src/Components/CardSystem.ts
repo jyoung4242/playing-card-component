@@ -16,7 +16,6 @@ import {
   vec,
   Random,
   clamp,
-  //toRadians,
 } from "excalibur";
 
 /*
@@ -44,7 +43,8 @@ export const CardStatus = {
   InDeck: "InDeck", // resides in Deck
   InHand: "InHand", // resides in Hand
   InPlay: "InPlay", // resides nowhere
-  inZone: "inZone", // resides in Zone
+  InZone: "InZone", // resides in Zone
+  InStack: "InStack", // resides in Stack
 } as const;
 export type CardStatusType = (typeof CardStatus)[keyof typeof CardStatus];
 
@@ -79,6 +79,13 @@ export interface CardHandOptions {
   minCardspacing?: number;
   fanAngle?: number;
   fanRadius?: number;
+}
+
+export interface TableStackOptions {
+  offset?: Vector;
+  maxVisible?: number;
+  topCardOnly?: boolean;
+  maxCardCount?: number;
 }
 
 export interface PlayingCardOptions extends CardOptions {
@@ -124,6 +131,9 @@ export class CardComponent extends Component {
   protected _cardFace: Sprite;
   protected _cardBack: Sprite;
   protected _data: any;
+  protected _isHovered = false;
+  protected _isOwned = false;
+  protected _isOwnedBy: number | null = null;
 
   constructor(config: CardOptions) {
     super();
@@ -144,11 +154,32 @@ export class CardComponent extends Component {
   onAdd(owner: Entity): void {
     let card = qualifyEntity(owner);
     if (!card) return;
+
     card.graphics.add("cardFace", this._cardFace);
     card.graphics.add("cardBack", this._cardBack);
 
     if (this._isFaceUp) card.graphics.use("cardFace");
     else card.graphics.use("cardBack");
+
+    // Add pointer hover logic
+    card.on("pointerenter", () => {
+      this._isHovered = true;
+      console.log("card hovered: ", card.id);
+    });
+
+    card.on("pointerleave", () => {
+      this._isHovered = false;
+    });
+
+    // Change cursor style on hover
+    card.pointer.useGraphicsBounds = true;
+    card.on("pointerenter", () => {
+      document.body.style.cursor = "pointer";
+    });
+
+    card.on("pointerleave", () => {
+      document.body.style.cursor = "default";
+    });
   }
 
   get isFaceUp() {
@@ -170,6 +201,27 @@ export class CardComponent extends Component {
     if (!card) return;
     card = this.owner as ScreenElement | Actor;
     card.actions.runAction(new FlipCardAction(this, card, duration));
+  }
+
+  set isOwned(value: boolean) {
+    this._isOwned = value;
+  }
+
+  get isOwned() {
+    return this._isOwned;
+  }
+
+  set isOwnedBy(value: number | null) {
+    if (value && value < 0) value = null;
+
+    if (value == null) this._isOwned = false;
+    else this._isOwned = true;
+
+    this._isOwnedBy = value;
+  }
+
+  get isOwnedBy() {
+    return this._isOwnedBy;
   }
 }
 
@@ -336,7 +388,7 @@ export class CardHandComponent extends Component {
 
   // Fan layout specific properties
   private fanAngle: number = 8; // Angle between each card in degrees
-  private fanRadius: number = 300; // Radius of the arc
+  private fanRadius: number = 400; // Radius of the arc
 
   constructor(config: CardHandOptions) {
     super();
@@ -421,8 +473,9 @@ export class CardHandComponent extends Component {
       const pos = this.calculateFlatPosition(index, cardCount);
 
       // Set relative position (relative to hand entity)
-      card.pos.x = pos.x;
-      card.pos.y = pos.y;
+      //card.pos.x = pos.x;
+      //card.pos.y = pos.y;
+      card.actions.moveTo({ pos: vec(pos.x, pos.y), duration: 300 });
       card.rotation = pos.rotation;
       card.z = pos.z;
     });
@@ -430,13 +483,14 @@ export class CardHandComponent extends Component {
 
   useFanLayout() {
     const cardCount = this._cards.length;
+    console.log(cardCount, this._cards);
 
     this._cards.forEach((card, index) => {
-      const pos = this.calculateFanPosition(index, cardCount);
-
+      const pos: { x: number; y: number; rotation: number; z: number } = this.calculateFanPosition(index, cardCount);
       // Set relative position (relative to hand entity)
-      card.pos.x = pos.x;
-      card.pos.y = pos.y;
+      //card.pos.x = pos.x;
+      //card.pos.y = pos.y;
+      card.actions.moveTo({ pos: vec(pos.x, pos.y), duration: 300 });
       card.rotation = pos.rotation;
       card.z = pos.z;
     });
@@ -554,6 +608,10 @@ export class CardHandComponent extends Component {
 
     return { x, y, rotation, z };
   }
+
+  canTakeCard(): boolean {
+    return this._cards.length < this.maxCards;
+  }
 }
 export class TableZoneComponent extends Component {
   private _cards: Actor[] = [];
@@ -604,6 +662,139 @@ export class TableZoneComponent extends Component {
 
   get count() {
     return this._cards.length;
+  }
+}
+
+export class TableStackComponent extends Component {
+  _offset: Vector = vec(0, 0);
+  _maxVisible: number = 0;
+  _topCardOnly: boolean = true;
+  _cards: Actor[] = [];
+  _dirtyFlag: boolean = false;
+  _maxCardCount: number = 0;
+
+  constructor(config: TableStackOptions) {
+    super();
+    this._offset = config.offset ? config.offset : vec(0, 0);
+    this._maxVisible = config.maxVisible ? config.maxVisible : 0;
+    this._topCardOnly = config.topCardOnly ? config.topCardOnly : true;
+    this._maxCardCount = config.maxCardCount ? config.maxCardCount : 0;
+  }
+
+  onAdd(owner: Entity): void {
+    let stack = qualifyEntity(owner);
+    if (!stack) return;
+
+    stack.on("preupdate", this.update.bind(this));
+  }
+  onRemove(previousOwner: Entity): void {
+    let stack = qualifyEntity(previousOwner);
+    if (!stack) return;
+    stack.off("preupdate", this.update.bind(this));
+  }
+
+  // getters and setters
+  get cards() {
+    return this._cards;
+  }
+
+  get maxVisible() {
+    return this._maxVisible;
+  }
+
+  get topCardOnly() {
+    return this._topCardOnly;
+  }
+
+  get offset() {
+    return this._offset;
+  }
+
+  set offset(value: Vector) {
+    this._offset = value;
+  }
+
+  get dirtyFlag() {
+    return this._dirtyFlag;
+  }
+
+  set dirtyFlag(value: boolean) {
+    this._dirtyFlag = value;
+  }
+
+  clear() {
+    this._cards = [];
+  }
+
+  get count() {
+    return this._cards.length;
+  }
+
+  get topCard() {
+    return this._cards[this._cards.length - 1];
+  }
+
+  canTakeCard(): boolean {
+    if (this._maxCardCount === 0) return true;
+    return this._cards.length < this._maxCardCount;
+  }
+
+  // class utilities
+  addCard(card: Actor) {
+    //validate card has card component
+    let validCard = validateCard(card);
+    if (!validCard) return;
+    this._cards.push(card);
+    this.owner?.addChild(card);
+    this.dirtyFlag = true;
+  }
+
+  addCards(cards: Actor[]) {
+    cards.forEach(card => this.addCard(card));
+  }
+
+  removeCard(card: Actor) {
+    const index = this._cards.indexOf(card);
+    // remove child if card is child of stack
+    if (card.parent === this.owner) this.owner?.removeChild(card);
+    if (index !== -1) this._cards.splice(index, 1);
+    this.dirtyFlag = true;
+  }
+  removeCards(cards: Actor[]) {
+    cards.forEach(card => this.removeCard(card));
+  }
+
+  getNextCardPosition(): Vector {
+    const owner = this.owner as Actor;
+    if (!owner) return vec(0, 0);
+    const basePos = owner.pos.clone();
+    const offsetAmount = this._offset.scale(this._cards.length);
+    return basePos.add(offsetAmount);
+  }
+
+  update(evt: PreUpdateEvent) {
+    if (!evt) return;
+
+    // Only update positions if dirty flag is set
+    if (!this._dirtyFlag) return;
+
+    const owner = this.owner as Actor;
+    if (!owner) return;
+
+    const basePos = owner.pos.clone();
+
+    // Loop through cards and reposition them
+    this._cards.forEach((card, index) => {
+      // Calculate position with offset
+      const offsetAmount = this._offset.scale(index);
+      card.pos = basePos.add(offsetAmount);
+
+      // Set z-index (higher index = higher z)
+      card.z = owner.z + index + 1;
+    });
+
+    // Clear the dirty flag after updating
+    this._dirtyFlag = false;
   }
 }
 
@@ -1037,4 +1228,10 @@ export class DeckGraphics extends Graphic {
 function qualifyEntity(ent: Entity): Actor | ScreenElement | null {
   if (ent instanceof Actor || ent instanceof ScreenElement) return ent as Actor | ScreenElement;
   return null;
+}
+
+function validateCard(ent: Entity): Actor | null {
+  if (!(ent instanceof Actor)) return null;
+  if (!(ent.has(CardComponent) || ent.has(PlayingCardComponent))) return null;
+  return ent as Actor;
 }

@@ -1,8 +1,18 @@
-import { Actor, Engine, ScreenElement, vec, Vector } from "excalibur";
+import { Actor, Engine, PointerButton, vec, Vector } from "excalibur";
 import { cardBack, deckSS } from "../resources";
-import { CardDeckComponent, CardHandComponent, moveAndFlipCard, PlayingCardRank, PlayingCardSuit } from "../Components/CardSystem";
+import {
+  CardDeckComponent,
+  CardHandComponent,
+  CardStatus,
+  moveAndFlipCard,
+  PlayingCardRank,
+  PlayingCardSuit,
+  TableStackComponent,
+  TableZoneComponent,
+} from "../Components/CardSystem";
 import { PlayingCard } from "./PlayingCard";
 import { coroutineAction } from "../Lib/CoroutineAction";
+import { PlayingHand } from "./PlayingHand";
 
 export class PlayingDeck extends Actor {
   deckComponent: CardDeckComponent | null = null;
@@ -25,59 +35,102 @@ export class PlayingDeck extends Actor {
     });
     this.addComponent(this.deckComponent);
 
-    this.on("pointerup", () => {
+    this.on("pointerup", evt => {
       if (!this.deckComponent) return;
-      //draw card from deck and place in hand
-      let hand = engine.currentScene.entities.find(e => e.has(CardHandComponent));
-      if (!hand) return;
-      let handComponent = hand.get(CardHandComponent);
-      if (!handComponent) return;
 
-      // let nextCardPosition = handComponent.getNextCardPosition();
-      // get the top card from the deck and place it in the hand
-      let cards = this.deckComponent.drawCards();
-      if (!cards) return;
-      let drawnCard = cards[0] as PlayingCard;
+      if (evt.button == PointerButton.Left) {
+        //draw card from deck and place in hand
+        let hand = engine.currentScene.entities.find(e => e.has(CardHandComponent));
+        if (!hand) return;
+        let handComponent = hand.get(CardHandComponent);
+        if (!handComponent) return;
+        if (handComponent.canTakeCard() === false) return;
 
-      // remove card from deck
-      const topCardPosition = this.deckComponent.getTopCardPosition();
-      drawnCard.pos = this.pos.add(topCardPosition);
-      drawnCard.z = this.z + 1;
-      scene.add(drawnCard);
+        // let nextCardPosition = handComponent.getNextCardPosition();
+        // get the top card from the deck and place it in the hand
+        let cards = this.deckComponent.drawCards();
+        if (!cards) return;
+        let drawnCard = cards[0] as PlayingCard;
 
-      let handScreenPosition = (hand as ScreenElement).pos.clone();
-      // Convert duration (500ms) to speed
-      // debugger;
-      // let cardActions = new ParallelActions([
-      //   new MoveTo(drawnCard, handScreenPosition.x - drawnCard.width / 2, handScreenPosition.y - drawnCard.height / 2, speed),
-      //   new RotateTo(drawnCard, nextCardPosition.rotation, 500),
-      //   new FlipCardAction(drawnCard.getCard(), drawnCard, 500),
-      // ]);
+        // remove card from deck
+        const topCardPosition = this.deckComponent.getTopCardPosition();
+        drawnCard.pos = this.pos.add(topCardPosition);
+        drawnCard.z = 10000;
+        scene.add(drawnCard);
 
-      drawnCard.actions
-        .runAction(
-          coroutineAction(moveAndFlipCard, {
-            targetX: handScreenPosition.x - drawnCard.width / 2,
-            targetY: handScreenPosition.y - drawnCard.height / 2,
-            speed: 750,
-            duration: 600,
-          })
-        )
-        .toPromise()
-        .then(() => {
-          handComponent.addCard(drawnCard);
-        });
+        //let handScreenPosition = (hand as ScreenElement).pos.clone();
+        let handScreenPosition = (hand as PlayingHand).getHand().getNextCardPosition();
+        let nextPosition = vec(handScreenPosition.x, handScreenPosition.y).add((hand as PlayingHand).pos);
 
-      // drawnCard.actions
-      //   .runAction(cardActions)
-      //   .toPromise()
-      //   .then(() => {
-      //     handComponent.addCard(drawnCard);
-      //   });
+        drawnCard.actions
+          .runAction(
+            coroutineAction(moveAndFlipCard, {
+              targetX: nextPosition.x - drawnCard.width / 2,
+              targetY: nextPosition.y - drawnCard.height / 2,
+              speed: 750,
+              duration: 600,
+            })
+          )
+          .toPromise()
+          .then(() => {
+            handComponent.addCard(drawnCard);
+            drawnCard.pos = nextPosition.sub((hand as PlayingHand).pos);
+            let drawnCardComponent = drawnCard.getCard();
+            drawnCardComponent.status = CardStatus.InHand;
+            drawnCardComponent.isOwnedBy = hand.id;
+          });
+      } else if (evt.button == PointerButton.Right) {
+        let stack = engine.currentScene.entities.find(e => e.has(TableStackComponent));
+        let zone = engine.currentScene.entities.find(e => e.has(TableZoneComponent)) as Actor;
+        if (!stack) return;
+        let stackComponent = stack.get(TableStackComponent);
+        if (!stackComponent) return;
+        if (stackComponent.canTakeCard() === false) return;
+        if (!zone) return;
+        let zoneComponent = zone.get(TableZoneComponent);
+        if (!zoneComponent) return;
+
+        let cards = this.deckComponent.drawCards();
+        if (!cards) return;
+
+        let drawnCard = cards[0] as PlayingCard;
+
+        // remove card from deck
+        const topCardPosition = this.deckComponent.getTopCardPosition();
+        console.log("topCardPosition", topCardPosition);
+
+        drawnCard.pos = this.pos.add(topCardPosition);
+        drawnCard.z = 10000;
+        scene.add(drawnCard);
+
+        let nextPosition = stackComponent.getNextCardPosition().add(zone.pos);
+        drawnCard.actions
+          .runAction(
+            coroutineAction(moveAndFlipCard, {
+              targetX: nextPosition.x - drawnCard.width / 2,
+              targetY: nextPosition.y - drawnCard.height / 2,
+              speed: 750,
+              duration: 600,
+            })
+          )
+          .toPromise()
+          .then(() => {
+            stackComponent.addCard(drawnCard);
+            drawnCard.pos = nextPosition;
+            let drawnCardComponent = drawnCard.getCard();
+            drawnCardComponent.status = CardStatus.InStack;
+            drawnCardComponent.isOwnedBy = stack.id;
+            console.log(zone, stack, drawnCard);
+          });
+      }
     });
 
     this.setDefaultDeck();
   }
+
+  leftClickHandler() {}
+
+  rightClickHandler() {}
 
   getSuit(i: number): keyof typeof PlayingCardSuit {
     switch (i) {

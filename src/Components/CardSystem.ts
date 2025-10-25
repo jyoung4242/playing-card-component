@@ -28,16 +28,18 @@ import {
  */
 //#region typdefs
 
+export type CardLayout = { x: number; y: number; rotation: number; z: number };
+
 export const CardResultStatus = {
   Success: "Success",
   Error: "Error",
 } as const;
 export type CardResultStatusType = (typeof CardResultStatus)[keyof typeof CardResultStatus];
 
-export type CardResult =
+export type CardResult<T = unknown> =
   | {
       status: typeof CardResultStatus.Success;
-      value: any;
+      value: T;
     }
   | {
       status: typeof CardResultStatus.Error;
@@ -79,6 +81,7 @@ export interface CardHandOptions {
   fanAngle?: number;
   fanRadius?: number;
   cardWidth?: number;
+  cardReorderSpeed?: number;
 }
 
 export interface TableStackOptions {
@@ -174,7 +177,9 @@ export class CardComponent<TData = unknown> extends Component {
   }
 
   private _update(): void {
-    if (!this.pointerReference) this.pointerReference = this.owner!.scene!.engine.input.pointers.primary;
+    if (!this.owner?.scene?.engine) return;
+    if (!this.pointerReference) this.pointerReference = this.owner.scene.engine.input.pointers.primary;
+
     let bounds = (this.owner as Actor).graphics.bounds;
     let currentHovered = this._isHovered;
     this._isHovered = bounds.contains(this.pointerReference.lastWorldPos);
@@ -331,7 +336,7 @@ export class CardDeckComponent extends Component {
     return this._cards[this._cards.length - 1];
   }
 
-  public addCard(card: Actor): CardResult {
+  public addCard(card: Actor): CardResult<Actor | ScreenElement> {
     let validatedCard = validateCard(card);
     if (!validatedCard) return { status: CardResultStatus.Error, message: "Card is not a valid CardComponent." };
     if (this._cards.length >= this._maxCards) return { status: CardResultStatus.Error, message: "Deck is full." };
@@ -340,7 +345,7 @@ export class CardDeckComponent extends Component {
     return { status: CardResultStatus.Success, value: validatedCard };
   }
 
-  public addCards(cards: Actor[]): CardResult {
+  public addCards(cards: Actor[]): CardResult<Actor[]> {
     //length check
     if (this._cards.length + cards.length > this._maxCards) return { status: CardResultStatus.Error, message: "Deck is full." };
     for (let card of cards) {
@@ -350,7 +355,7 @@ export class CardDeckComponent extends Component {
     return { status: CardResultStatus.Success, value: cards };
   }
 
-  public removeCard(card: Actor): CardResult {
+  public removeCard(card: Actor): CardResult<Actor | ScreenElement> {
     let validatedCard = validateCard(card);
     if (!validatedCard) return { status: CardResultStatus.Error, message: "Card is not a valid CardComponent." };
 
@@ -366,7 +371,7 @@ export class CardDeckComponent extends Component {
     return { status: CardResultStatus.Success, value: card };
   }
 
-  public drawCards(numCards?: number): CardResult {
+  public drawCards(numCards?: number): CardResult<Actor[]> {
     if (!numCards) numCards = 1;
     // not enough cards
     if (this._cards.length < numCards) return { status: CardResultStatus.Error, message: "Not enough cards in the deck." };
@@ -433,6 +438,7 @@ export class CardHandComponent extends Component {
   private _maxCardspacing: number = -1;
   private _minCardspacing: number = -1;
   private _cardWidth: number = 80;
+  private _cardReorderSpeed: number = 300;
   public emitter = new EventEmitter<HandEvents>();
 
   // Fan layout specific properties
@@ -448,6 +454,7 @@ export class CardHandComponent extends Component {
     if (config.fanAngle) this._fanAngle = config.fanAngle;
     if (config.fanRadius) this._fanRadius = config.fanRadius;
     if (config.cardWidth) this._cardWidth = config.cardWidth;
+    if (config.cardReorderSpeed) this._cardReorderSpeed = config.cardReorderSpeed;
   }
 
   get cards() {
@@ -473,7 +480,7 @@ export class CardHandComponent extends Component {
     this.emitter.emit("handCleared", new HandClearedEvent(this.owner as Actor));
   }
 
-  public addCard(card: Actor): CardResult {
+  public addCard(card: Actor): CardResult<Actor> {
     //validate card
     let validatedCard = validateCard(card);
     if (!validatedCard) return { status: CardResultStatus.Error, message: "Card is not a valid CardComponent." };
@@ -488,7 +495,7 @@ export class CardHandComponent extends Component {
     return { status: CardResultStatus.Success, value: card };
   }
 
-  public addCards(cards: Actor[]): CardResult {
+  public addCards(cards: Actor[]): CardResult<Actor[]> {
     // check for max cards
     if (this._cards.length + cards.length > this._maxCards) return { status: CardResultStatus.Error, message: "Hand is full." };
     for (let card of cards) {
@@ -498,7 +505,7 @@ export class CardHandComponent extends Component {
     return { status: CardResultStatus.Success, value: cards };
   }
 
-  public setDestination(card: Actor): CardResult {
+  public setDestination(card: Actor): CardResult<Actor | ScreenElement> {
     if (this._cards.length >= this._maxCards) {
       return { status: CardResultStatus.Error, message: "Hand is full." };
     }
@@ -506,7 +513,7 @@ export class CardHandComponent extends Component {
     return { status: CardResultStatus.Success, value: card };
   }
 
-  public removeCard(card: Actor): CardResult {
+  public removeCard(card: Actor): CardResult<Actor | ScreenElement> {
     //validate card
     let validatedCard = validateCard(card);
     if (!validatedCard) return { status: CardResultStatus.Error, message: "Card is not a valid CardComponent." };
@@ -539,8 +546,8 @@ export class CardHandComponent extends Component {
   private _useFlatLayout() {
     const cardCount = this._cards.length;
     this._cards.forEach((card, index) => {
-      const pos = this._calculateFlatPosition(index, cardCount, this._cardWidth);
-      card.actions.moveTo({ pos: vec(pos.x, pos.y), duration: 300 });
+      const pos = this._calculateFlatPosition(index, cardCount);
+      card.actions.moveTo({ pos: vec(pos.x, pos.y), duration: this._cardReorderSpeed });
       card.rotation = pos.rotation;
       card.z = pos.z;
     });
@@ -550,13 +557,13 @@ export class CardHandComponent extends Component {
     const cardCount = this._cards.length;
     this._cards.forEach((card, index) => {
       const pos: { x: number; y: number; rotation: number; z: number } = this._calculateFanPosition(index, cardCount);
-      card.actions.moveTo({ pos: vec(pos.x, pos.y), duration: 300 });
+      card.actions.moveTo({ pos: vec(pos.x, pos.y), duration: this._cardReorderSpeed });
       card.rotation = pos.rotation;
       card.z = pos.z;
     });
   }
 
-  public getNextCardPosition(): CardResult {
+  public getNextCardPosition(): CardResult<CardLayout> {
     if (this._cards.length + 1 >= this._maxCards) return { status: CardResultStatus.Error, message: "Hand is full." };
     const futureCardCount = this._cards.length + 1;
     if (this._spread === "flat")
@@ -564,9 +571,9 @@ export class CardHandComponent extends Component {
     else return { status: CardResultStatus.Success, value: this._calculateFanPosition(this._cards.length, futureCardCount) };
   }
 
-  private _calculateCardSpacing(cardCount: number, cardWidth: number): number {
+  private _calculateCardSpacing(cardCount: number): number {
     if (cardCount <= 1) return 0;
-    let spacing = cardWidth * 0.8;
+    let spacing = this._cardWidth * 0.8;
     if (this._maxCardspacing > 0) {
       spacing = Math.min(spacing, this._maxCardspacing);
     }
@@ -576,16 +583,11 @@ export class CardHandComponent extends Component {
     return spacing;
   }
 
-  private _calculateFlatPosition(
-    index: number,
-    totalCards: number,
-    cardWidth?: number
-  ): { x: number; y: number; rotation: number; z: number } {
-    const _cardWidth = cardWidth ? cardWidth : 80; // Adjust this to match your actual card width
+  private _calculateFlatPosition(index: number, totalCards: number): CardLayout {
     if (totalCards === 0) return { x: 0, y: 0, rotation: 0, z: 0 };
     const hand = this.owner as Actor;
     if (!hand) return { x: 0, y: 0, rotation: 0, z: 0 };
-    const spacing = this._calculateCardSpacing(totalCards, _cardWidth);
+    const spacing = this._calculateCardSpacing(totalCards);
 
     // For odd number of cards, middle card is at center (position 0)
     // For even number, cards split evenly on both sides
@@ -600,7 +602,7 @@ export class CardHandComponent extends Component {
     return { x, y, rotation, z };
   }
 
-  private _calculateFanPosition(index: number, totalCards: number): { x: number; y: number; rotation: number; z: number } {
+  private _calculateFanPosition(index: number, totalCards: number): CardLayout {
     if (totalCards === 0) {
       return { x: 0, y: 0, rotation: 0, z: 0 };
     }
@@ -672,7 +674,7 @@ export class TableZoneComponent extends Component {
     return this._cards;
   }
 
-  public addCard(card: Actor): CardResult {
+  public addCard(card: Actor): CardResult<Actor | ScreenElement> {
     // snap card to zone's position
     if (!this.owner) return { status: CardResultStatus.Error, message: "Zone has no owner." };
     if (!(this.owner instanceof Actor || this.owner instanceof ScreenElement)) {
@@ -687,7 +689,7 @@ export class TableZoneComponent extends Component {
     return { status: CardResultStatus.Success, value: card };
   }
 
-  public removeCard(card: Actor): CardResult {
+  public removeCard(card: Actor): CardResult<Actor | ScreenElement> {
     //validate card
     let validatedCard = validateCard(card);
     if (!validatedCard) return { status: CardResultStatus.Error, message: "Card is not a valid CardComponent." };
@@ -781,7 +783,7 @@ export class TableStackComponent extends Component {
   }
 
   // class utilities
-  public addCard(card: Actor): CardResult {
+  public addCard(card: Actor): CardResult<Actor | ScreenElement> {
     //validate card
     let validatedCard = validateCard(card);
     if (!validatedCard) return { status: CardResultStatus.Error, message: "Card is not a valid CardComponent." };
@@ -798,7 +800,7 @@ export class TableStackComponent extends Component {
     return { status: CardResultStatus.Success, value: card };
   }
 
-  public setDestination(card: Actor): CardResult {
+  public setDestination(card: Actor): CardResult<Actor | ScreenElement> {
     //validate card has card component
     let validCard = validateCard(card);
     if (!validCard) return { status: CardResultStatus.Error, message: "Card is not a valid CardComponent." };
@@ -810,7 +812,7 @@ export class TableStackComponent extends Component {
     return { status: CardResultStatus.Success, value: card };
   }
 
-  public addCards(cards: Actor[]): CardResult {
+  public addCards(cards: Actor[]): CardResult<Actor[]> {
     for (let i = 0; i < cards.length; i++) {
       let result = this.addCard(cards[i]);
       if (result.status === CardResultStatus.Error) return result;
@@ -819,7 +821,7 @@ export class TableStackComponent extends Component {
     return { status: CardResultStatus.Success, value: cards };
   }
 
-  public removeCard(card: Actor): CardResult {
+  public removeCard(card: Actor): CardResult<Actor | ScreenElement> {
     //validate card
     let validatedCard = validateCard(card);
     if (!validatedCard) return { status: CardResultStatus.Error, message: "Card is not a valid CardComponent." };
@@ -878,13 +880,13 @@ export class TableComponent extends Component {
     previousOwner.off("preupdate", this._update.bind(this));
   }
 
-  public addZone(name: string, zone: Actor | ScreenElement): CardResult {
+  public addZone(name: string, zone: Actor | ScreenElement): CardResult<Actor | ScreenElement> {
     if (!zone.has(TableZoneComponent)) return { status: CardResultStatus.Error, message: "Zone is not a valid TableZoneComponent." };
     this._zonesToAdd[name] = zone.get(TableZoneComponent);
     return { status: CardResultStatus.Success, value: zone };
   }
 
-  public getZone(name: string): CardResult {
+  public getZone(name: string): CardResult<TableZoneComponent> {
     if (!this._zones[name]) return { status: CardResultStatus.Error, message: "Zone does not exist." };
     return { status: CardResultStatus.Success, value: this._zones[name] };
   }
@@ -1033,9 +1035,11 @@ export function* moveAndFlipCard(
     }
 
     if (elapsedTime >= ctx.duration / 2 && !flipped) {
-      //@ts-ignore
-      let cardComponent = actor.getCard();
-      //@ts-ignore
+      const cardComponent = actor.get(CardComponent);
+      if (!cardComponent) {
+        console.warn("Actor does not have CardComponent");
+        return; // or continue without flipping
+      }
       cardComponent.isFaceUp = !cardComponent.isFaceUp;
       if (actor.graphics) {
         actor.graphics.use(cardComponent.isFaceUp ? "cardFace" : "cardBack");

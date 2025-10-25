@@ -1,5 +1,5 @@
 import { Color, ScreenElement, Sprite, vec, Vector } from "excalibur";
-import { TableComponent, TableStackComponent, TableZoneComponent, ZoneMode } from "../Components/CardSystem";
+import { TableComponent, TableStackComponent, TableZoneComponent } from "../Components/CardSystem";
 
 export class PlayingTable extends ScreenElement {
   tableComponent: TableComponent;
@@ -19,7 +19,7 @@ export class LandingSpot extends ScreenElement {
   zoneComponent: TableZoneComponent;
   constructor(name: string, pos: Vector, size: Vector, Image: Sprite) {
     super({ name, pos, width: size.x, height: size.y, z: 0, anchor: vec(0.5, 0.5) });
-    this.zoneComponent = new TableZoneComponent(size, ZoneMode.Card, Image);
+    this.zoneComponent = new TableZoneComponent(size, Image);
     this.addComponent(this.zoneComponent);
 
     this.stack = new CardStack();

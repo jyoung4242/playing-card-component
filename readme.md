@@ -53,7 +53,7 @@ CardSystem.ts is located in /src/components/
 
 ```typescript
 import { Actor, Sprite, ImageSource } from "excalibur";
-import { CardComponent } from "./card-system";
+import { CardComponent } from "./CardSystem";
 
 // Load card images
 const cardFaceImage = new ImageSource("./card-face.png");

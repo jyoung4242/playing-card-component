@@ -17,8 +17,8 @@ export class PlayingTable extends ScreenElement {
 export class LandingSpot extends ScreenElement {
   stack;
   zoneComponent: TableZoneComponent;
-  constructor(pos: Vector, size: Vector, Image: Sprite) {
-    super({ pos, width: size.x, height: size.y, z: 0, anchor: vec(0.5, 0.5) });
+  constructor(name: string, pos: Vector, size: Vector, Image: Sprite) {
+    super({ name, pos, width: size.x, height: size.y, z: 0, anchor: vec(0.5, 0.5) });
     this.zoneComponent = new TableZoneComponent(size, ZoneMode.Card, Image);
     this.addComponent(this.zoneComponent);
 
@@ -28,6 +28,10 @@ export class LandingSpot extends ScreenElement {
 
   getZone(): TableZoneComponent {
     return this.zoneComponent;
+  }
+
+  getStack(): CardStack {
+    return this.stack;
   }
 }
 

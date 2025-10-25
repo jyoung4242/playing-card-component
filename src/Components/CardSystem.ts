@@ -3,8 +3,6 @@ import {
   Component,
   Entity,
   Sprite,
-  System,
-  SystemType,
   ScreenElement,
   Vector,
   lerp,
@@ -14,8 +12,9 @@ import {
   vec,
   Random,
   clamp,
+  PointerAbstraction,
+  lerpVector,
 } from "excalibur";
-import { game } from "../main";
 import { coroutineAction } from "../Lib/CoroutineAction";
 
 /*
@@ -134,6 +133,7 @@ export class CardComponent extends Component {
   protected _isHovered = false;
   protected _isOwned = false;
   protected _isOwnedBy: number | null = null;
+  protected pointerReference: any;
 
   constructor(config: CardOptions) {
     super();
@@ -155,30 +155,24 @@ export class CardComponent extends Component {
     let card = qualifyEntity(owner);
     if (!card) return;
 
-    card.graphics.add("cardFace", this._cardFace);
-    card.graphics.add("cardBack", this._cardBack);
+    card.graphics.add("cardFace", this._cardFace.clone());
+    card.graphics.add("cardBack", this._cardBack.clone());
 
     if (this._isFaceUp) card.graphics.use("cardFace");
     else card.graphics.use("cardBack");
+    owner.on("preupdate", this.update.bind(this));
+  }
 
-    // Add pointer hover logic
-    card.on("pointerenter", () => {
-      this._isHovered = true;
-    });
+  onRemove(previousOwner: Entity): void {
+    let card = qualifyEntity(previousOwner);
+    if (!card) return;
+    card.off("preupdate", this.update.bind(this));
+  }
 
-    card.on("pointerleave", () => {
-      this._isHovered = false;
-    });
-
-    // Change cursor style on hover
-    card.pointer.useGraphicsBounds = true;
-    card.on("pointerenter", () => {
-      document.body.style.cursor = "pointer";
-    });
-
-    card.on("pointerleave", () => {
-      document.body.style.cursor = "default";
-    });
+  update(): void {
+    if (!this.pointerReference) this.pointerReference = this.owner!.scene!.engine.input.pointers.primary;
+    let bounds = (this.owner as Actor).graphics.bounds;
+    this._isHovered = bounds.contains((this.pointerReference as PointerAbstraction).lastWorldPos);
   }
 
   get isFaceUp() {
@@ -209,6 +203,12 @@ export class CardComponent extends Component {
   get isOwned() {
     return this._isOwned;
   }
+
+  get isHovered() {
+    return this._isHovered;
+  }
+
+  cancelPointerEvent() {}
 
   set isOwnedBy(value: number | null) {
     if (value && value < 0) value = null;
@@ -810,8 +810,9 @@ export class TableComponent extends Component {
     previousOwner.off("preupdate", this.update.bind(this));
   }
 
-  addZone(name: string, zone: TableZoneComponent) {
-    this.zonesToAdd[name] = zone;
+  addZone(name: string, zone: Actor | ScreenElement) {
+    if (!zone.has(TableZoneComponent)) return;
+    this.zonesToAdd[name] = zone.get(TableZoneComponent);
   }
 
   getZone(name: string) {
@@ -834,114 +835,6 @@ export class TableComponent extends Component {
 
 //#endregion Card Component
 
-/*
- * Card Game System
- */
-// #region Card Game System
-export class CardGameSystem extends System {
-  systemType = SystemType.Update;
-  constructor() {
-    super();
-  }
-
-  /**
-   * Draw a card from a deck into a hand
-   */
-  drawCard(deck: CardDeckComponent, hand: CardHandComponent) {
-    const cards = deck.drawCards();
-    if (!cards) return null;
-    hand.addCards(cards);
-    cards.forEach(card => {
-      const cardComp = card.get(CardComponent);
-      if (cardComp) cardComp.status = "InHand";
-    });
-    return cards;
-  }
-
-  /**
-   * Play a card from a hand to a table zone
-   */
-  playCard(hand: CardHandComponent, card: Actor, table: TableComponent, zoneName: string) {
-    // Remove from hand
-    hand.removeCard(card);
-
-    // Place on table
-    const zone = table.getZone(zoneName);
-    if (!zone) throw new Error(`Zone "${zoneName}" does not exist`);
-
-    zone.addCard(card);
-
-    // Update card state
-    const cardComp = card.get(CardComponent);
-    if (cardComp) {
-      cardComp.status = "InPlay";
-      cardComp.isFaceUp = true;
-    }
-
-    return card;
-  }
-
-  /**
-   * Move a card from one zone to another on the table
-   */
-  moveCardOnTable(table: TableComponent, fromZoneName: string, toZoneName: string, card: Actor) {
-    const fromZone = table.getZone(fromZoneName);
-    const toZone = table.getZone(toZoneName);
-
-    if (!fromZone || !toZone) throw new Error(`One or both zones do not exist`);
-
-    fromZone.removeCard(card);
-    toZone.addCard(card);
-  }
-
-  /**
-   * Shuffle a deck
-   */
-  shuffleDeck(deck: CardDeckComponent) {
-    deck.shuffle();
-  }
-
-  update(): void {}
-}
-
-export class TableSystem extends System {
-  systemType: SystemType = SystemType.Update;
-
-  placeCard(table: TableComponent, zoneName: string, card: Actor) {
-    const zone = table.getZone(zoneName);
-    if (!zone) throw new Error(`Zone ${zoneName} does not exist`);
-
-    zone.addCard(card);
-
-    const cardComp = card.get(CardComponent);
-    if (cardComp) {
-      cardComp.status = "InPlay";
-      cardComp.isFaceUp = true;
-    }
-  }
-
-  removeCard(table: TableComponent, zoneName: string, card: Actor) {
-    const zone = table.getZone(zoneName);
-    if (!zone) return;
-
-    zone.removeCard(card);
-
-    const cardComp = card.get(CardComponent);
-    if (cardComp) {
-      cardComp.status = "InHand"; // or InDeck depending on context
-    }
-  }
-
-  clearZone(table: TableComponent, zoneName: string) {
-    const zone = table.getZone(zoneName);
-    if (!zone) return;
-    zone.clear();
-  }
-
-  update(): void {}
-}
-// #endregion Card Game System
-
 /**
  * Card Actions
  */
@@ -953,20 +846,21 @@ export class TableSystem extends System {
 export function* flipCard(
   actor: Actor | ScreenElement,
   ctx: {
-    duration?: number; // Total animation duration in ms
-    yOffset?: number; // How much to lift card during flip
+    duration?: number;
+    yOffset?: number;
   } = {}
 ) {
   const duration = ctx.duration ?? 200;
   const yOffset = ctx.yOffset ?? 10;
 
-  const startScaleX = actor.scale.x;
   const startY = actor.pos.y;
+  const startRotation = actor.rotation;
+  const startScaleX = actor.scale.x;
+  const startScaleY = actor.scale.y;
 
   let elapsedTime = 0;
   let flipped = false;
 
-  // Get card component
   const cardComp = actor.get(CardComponent);
   if (!cardComp) {
     console.warn("Actor does not have CardComponent");
@@ -976,16 +870,18 @@ export function* flipCard(
   const halfDuration = duration / 2;
 
   while (elapsedTime < duration) {
-    const deltaTime: number = yield; // Get elapsed time since last frame
+    const deltaTime: number = yield;
     elapsedTime += deltaTime;
 
     if (!flipped) {
-      // First half: shrink and lift
       const progress = Math.min(elapsedTime / halfDuration, 1);
-      actor.scale.x = startScaleX * (1 - progress);
+      const scaleX = Math.abs(startScaleX) * (1 - progress);
+
+      actor.rotation = startRotation;
+      actor.scale.x = scaleX;
+      actor.scale.y = startScaleY;
       actor.pos.y = lerp(startY, startY - yOffset, progress);
 
-      // Flip at halfway point
       if (elapsedTime >= halfDuration) {
         cardComp.isFaceUp = !cardComp.isFaceUp;
         if (actor.graphics) {
@@ -994,15 +890,21 @@ export function* flipCard(
         flipped = true;
       }
     } else {
-      // Second half: grow and lower
       const progress = Math.min((elapsedTime - halfDuration) / halfDuration, 1);
-      actor.scale.x = startScaleX * progress;
+      const scaleX = Math.abs(startScaleX) * progress;
+
+      // Flip rotation by 180° for the second half
+      actor.rotation = startRotation - Math.PI;
+      actor.scale.x = scaleX;
+      actor.scale.y = startScaleY;
       actor.pos.y = lerp(startY - yOffset, startY, progress);
     }
   }
 
-  // Ensure final state
+  // Ensure final state (with flipped rotation)
   actor.scale.x = startScaleX;
+  actor.scale.y = startScaleY;
+  actor.rotation = startRotation + Math.PI;
   actor.pos.y = startY;
 }
 export function* moveAndFlipCard(
@@ -1012,7 +914,6 @@ export function* moveAndFlipCard(
     targetY: number;
     duration: number; // Total animation duration in ms
     flipDuration?: number; // Duration of flip animation in ms (defaults to half of duration)
-    debug?: boolean;
   }
 ) {
   const startX = actor.pos.x;
@@ -1047,10 +948,6 @@ export function* moveAndFlipCard(
       actor.scale.x = startScaleX * ((flipProgress - 0.5) * 2);
     }
 
-    // Simple flip at halfway point
-    if (ctx.debug && elapsedTime >= ctx.duration / 2) {
-      game.debug.useTestClock();
-    }
     if (elapsedTime >= ctx.duration / 2 && !flipped) {
       //@ts-ignore
       let cardComponent = actor.getCard();
@@ -1067,6 +964,38 @@ export function* moveAndFlipCard(
   actor.pos.x = ctx.targetX;
   actor.pos.y = ctx.targetY;
   actor.scale.x = startScaleX;
+  actor.rotation = 0;
+}
+
+export function* moveAndRotateCard(
+  actor: Actor,
+  ctx: {
+    targetX: number;
+    targetY: number;
+    duration: number; // Total animation duration in ms
+    rotationSpeed?: number;
+  }
+) {
+  const startPos = actor.pos.clone();
+  const startRotation = actor.rotation;
+  const targetVector = vec(ctx.targetX, ctx.targetY);
+  const duration = ctx.duration;
+  const rotationSpeed = (Math.PI * 2) / duration;
+  let elapsedTime = 0;
+
+  while (elapsedTime < duration) {
+    const deltaTime: number = yield; // Get elapsed time since last frame
+    // Calculate progress (0 to 1)
+    const progress = Math.min(elapsedTime / ctx.duration, 1);
+    elapsedTime += deltaTime;
+    actor.pos = lerpVector(startPos, targetVector, progress);
+    actor.rotation = startRotation + rotationSpeed * elapsedTime;
+  }
+
+  // Ensure final state
+  actor.pos.x = ctx.targetX;
+  actor.pos.y = ctx.targetY;
+  actor.rotation = startRotation;
 }
 
 // #endregion Card Actions
@@ -1178,3 +1107,38 @@ function validateCard(ent: Entity): Actor | null {
   if (!(ent.has(CardComponent) || ent.has(PlayingCardComponent))) return null;
   return ent as Actor;
 }
+
+// function applyLocalScale(actor: Actor | ScreenElement, localScaleX: number, localScaleY: number, rotation: number) {
+//   // Create rotation matrix
+//   const cos = Math.cos(rotation);
+//   const sin = Math.sin(rotation);
+
+//   // Apply local scale then rotation: R * S
+//   // Where S = [sx, 0; 0, sy] and R = [cos, -sin; sin, cos]
+//   // Result: [sx*cos, -sy*sin; sx*sin, sy*cos]
+
+//   const scaleXCos = localScaleX * cos;
+//   const scaleXSin = localScaleX * sin;
+//   const scaleYCos = localScaleY * cos;
+//   const scaleYSin = localScaleY * sin;
+
+//   // Set the transform matrix directly
+//   actor.scale.x = Math.sqrt(scaleXCos * scaleXCos + scaleXSin * scaleXSin);
+//   actor.scale.y = Math.sqrt(scaleYCos * scaleYCos + scaleYSin * scaleYSin);
+
+//   // Adjust rotation to maintain direction
+//   if (localScaleX < 0) {
+//     actor.rotation = rotation + Math.PI;
+//   } else {
+//     actor.rotation = rotation;
+//   }
+// }
+
+// function applyLocalScale(actor: Actor | ScreenElement, localScaleX: number, localScaleY: number, originalRotation: number) {
+//   // Set scale in local space (when rotation is 0)
+//   actor.rotation = 0;
+//   actor.scale.x = localScaleX;
+//   actor.scale.y = localScaleY;
+//   // Re-apply rotation
+//   actor.rotation = originalRotation;
+// }

@@ -20,7 +20,9 @@ deck-building, trading card games, and more.
 - [Events System](#events-system)
 - [Type System](#type-system)
 - [Examples](#examples)
-- [API Reference](#api-reference)
+- [License](#license)
+- [Contributing](#contributing)
+- [Support](#support)
 
 ---
 

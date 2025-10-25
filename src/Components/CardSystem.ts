@@ -53,12 +53,6 @@ export const CardStatus = {
 } as const;
 export type CardStatusType = (typeof CardStatus)[keyof typeof CardStatus];
 
-export const ZoneMode = {
-  Stack: "Stack",
-  Card: "Card",
-} as const;
-export type ZoneModeType = (typeof ZoneMode)[keyof typeof ZoneMode];
-
 export interface CardOptions {
   cardFace: Sprite;
   cardBack: Sprite;
@@ -141,7 +135,7 @@ export class CardComponent<TData = unknown> extends Component {
   protected _isOwned = false;
   protected _isOwnedBy: number | null = null;
   protected pointerReference: PointerAbstraction | null = null;
-  cardEmitter = new EventEmitter<CardEvents>();
+  public cardEmitter = new EventEmitter<CardEvents>();
 
   constructor(config: CardOptions) {
     super();
@@ -168,7 +162,7 @@ export class CardComponent<TData = unknown> extends Component {
 
     if (this._isFaceUp) card.graphics.use("cardFace");
     else card.graphics.use("cardBack");
-    owner.on("preupdate", this.update.bind(this));
+    owner.on("preupdate", this._update.bind(this));
 
     this.cardEmitter.emit("cardcreated", new CardCreatedEvent(card));
   }
@@ -176,10 +170,10 @@ export class CardComponent<TData = unknown> extends Component {
   onRemove(previousOwner: Entity): void {
     let card = qualifyEntity(previousOwner);
     if (!card) return;
-    card.off("preupdate", this.update.bind(this));
+    card.off("preupdate", this._update.bind(this));
   }
 
-  update(): void {
+  private _update(): void {
     if (!this.pointerReference) this.pointerReference = this.owner!.scene!.engine.input.pointers.primary;
     let bounds = (this.owner as Actor).graphics.bounds;
     let currentHovered = this._isHovered;
@@ -216,7 +210,7 @@ export class CardComponent<TData = unknown> extends Component {
       );
   }
 
-  flip(duration: number) {
+  public flip(duration: number) {
     let card = qualifyEntity(this.owner as Entity);
     if (!card) return;
     card = this.owner as ScreenElement | Actor;
@@ -234,8 +228,6 @@ export class CardComponent<TData = unknown> extends Component {
   get isHovered() {
     return this._isHovered;
   }
-
-  cancelPointerEvent() {}
 
   set isOwnedBy(value: number | null) {
     let previousOwner = this._isOwnedBy;
@@ -282,7 +274,7 @@ export class CardDeckComponent extends Component {
   private _autoSizing: boolean = false;
   private _stackDirection: Vector = Vector.Down;
   private _maxShuffles: number = 1;
-  emitter: EventEmitter = new EventEmitter<DeckEvents>();
+  public emitter: EventEmitter = new EventEmitter<DeckEvents>();
 
   constructor(config: CardDeckOptions) {
     super();
@@ -311,17 +303,17 @@ export class CardDeckComponent extends Component {
         stackDirection: this._stackDirection,
       })
     );
-    card.on("preupdate", this.update.bind(this));
+    card.on("preupdate", this._update.bind(this));
     this.emitter.emit("deckCreated", new DeckCreatedEvent(owner as Actor));
   }
 
   onRemove(previousOwner: Entity): void {
     let card = qualifyEntity(previousOwner);
     if (!card) return;
-    card.off("preupdate", this.update.bind(this));
+    card.off("preupdate", this._update.bind(this));
   }
 
-  getTopCardPosition(): Vector {
+  public getTopCardPosition(): Vector {
     let x = 0;
     let y = 0;
 
@@ -339,7 +331,7 @@ export class CardDeckComponent extends Component {
     return this._cards[this._cards.length - 1];
   }
 
-  addCard(card: Actor): CardResult {
+  public addCard(card: Actor): CardResult {
     let validatedCard = validateCard(card);
     if (!validatedCard) return { status: CardResultStatus.Error, message: "Card is not a valid CardComponent." };
     if (this._cards.length >= this._maxCards) return { status: CardResultStatus.Error, message: "Deck is full." };
@@ -348,7 +340,7 @@ export class CardDeckComponent extends Component {
     return { status: CardResultStatus.Success, value: validatedCard };
   }
 
-  addCards(cards: Actor[]): CardResult {
+  public addCards(cards: Actor[]): CardResult {
     //length check
     if (this._cards.length + cards.length > this._maxCards) return { status: CardResultStatus.Error, message: "Deck is full." };
     for (let card of cards) {
@@ -358,7 +350,7 @@ export class CardDeckComponent extends Component {
     return { status: CardResultStatus.Success, value: cards };
   }
 
-  removeCard(card: Actor): CardResult {
+  public removeCard(card: Actor): CardResult {
     let validatedCard = validateCard(card);
     if (!validatedCard) return { status: CardResultStatus.Error, message: "Card is not a valid CardComponent." };
 
@@ -374,7 +366,7 @@ export class CardDeckComponent extends Component {
     return { status: CardResultStatus.Success, value: card };
   }
 
-  drawCards(numCards?: number): CardResult {
+  public drawCards(numCards?: number): CardResult {
     if (!numCards) numCards = 1;
     // not enough cards
     if (this._cards.length < numCards) return { status: CardResultStatus.Error, message: "Not enough cards in the deck." };
@@ -392,7 +384,7 @@ export class CardDeckComponent extends Component {
     return { status: CardResultStatus.Success, value: drawn };
   }
 
-  clearDeck() {
+  public clearDeck() {
     this._cards = [];
     this._newDeckSize = 0;
     this.emitter.emit("deckCleared", new DeckClearedEvent(this.owner as Actor));
@@ -407,7 +399,7 @@ export class CardDeckComponent extends Component {
     return this._deckSize;
   }
 
-  shuffle(numShuffles?: number) {
+  public shuffle(numShuffles?: number) {
     if (!numShuffles) numShuffles = 1;
     if (numShuffles && numShuffles > this._maxShuffles) numShuffles = this._maxShuffles;
     let rng = new Random();
@@ -419,7 +411,7 @@ export class CardDeckComponent extends Component {
     return this._cards.length;
   }
 
-  update(evt: PreUpdateEvent) {
+  private _update(evt: PreUpdateEvent) {
     if (!evt) return;
     let deck = qualifyEntity(this.owner as Entity);
     if (!deck) return;
@@ -438,23 +430,23 @@ export class CardHandComponent extends Component {
   private _dirtyFlag: boolean = false;
   private maxCards: number = Infinity;
   private spread: "flat" | "fan" = "flat";
-  private maxCardspacing: number = -1;
-  private minCardspacing: number = -1;
+  private _maxCardspacing: number = -1;
+  private _minCardspacing: number = -1;
   private _cardWidth: number = 80;
-  emitter = new EventEmitter<HandEvents>();
+  public emitter = new EventEmitter<HandEvents>();
 
   // Fan layout specific properties
-  private fanAngle: number = 8; // Angle between each card in degrees
-  private fanRadius: number = 400; // Radius of the arc
+  private _fanAngle: number = 8; // Angle between each card in degrees
+  private _fanRadius: number = 400; // Radius of the arc
 
   constructor(config: CardHandOptions) {
     super();
     this.maxCards = config.maxCards ? config.maxCards : Infinity;
     this.spread = config.spread ? config.spread : "flat";
-    this.maxCardspacing = config.maxCardspacing ? config.maxCardspacing : -1;
-    this.minCardspacing = config.minCardspacing ? config.minCardspacing : -1;
-    if (config.fanAngle) this.fanAngle = config.fanAngle;
-    if (config.fanRadius) this.fanRadius = config.fanRadius;
+    this._maxCardspacing = config.maxCardspacing ? config.maxCardspacing : -1;
+    this._minCardspacing = config.minCardspacing ? config.minCardspacing : -1;
+    if (config.fanAngle) this._fanAngle = config.fanAngle;
+    if (config.fanRadius) this._fanRadius = config.fanRadius;
     if (config.cardWidth) this._cardWidth = config.cardWidth;
   }
 
@@ -465,23 +457,23 @@ export class CardHandComponent extends Component {
   onAdd(owner: Entity): void {
     let hand = qualifyEntity(owner);
     if (!hand) return;
-    hand.on("preupdate", this.update.bind(this));
+    hand.on("preupdate", this._update.bind(this));
     this.emitter.emit("handCreated", new HandCreatedEvent(owner as Actor));
   }
 
   onRemove(previousOwner: Entity): void {
     let hand = qualifyEntity(previousOwner);
     if (!hand) return;
-    hand.off("preupdate", this.update.bind(this));
+    hand.off("preupdate", this._update.bind(this));
   }
 
-  clearHand() {
+  public clearHand() {
     this._cards = [];
     this._dirtyFlag = true;
     this.emitter.emit("handCleared", new HandClearedEvent(this.owner as Actor));
   }
 
-  addCard(card: Actor): CardResult {
+  public addCard(card: Actor): CardResult {
     //validate card
     let validatedCard = validateCard(card);
     if (!validatedCard) return { status: CardResultStatus.Error, message: "Card is not a valid CardComponent." };
@@ -496,7 +488,7 @@ export class CardHandComponent extends Component {
     return { status: CardResultStatus.Success, value: card };
   }
 
-  addCards(cards: Actor[]): CardResult {
+  public addCards(cards: Actor[]): CardResult {
     // check for max cards
     if (this._cards.length + cards.length > this.maxCards) return { status: CardResultStatus.Error, message: "Hand is full." };
     for (let card of cards) {
@@ -506,7 +498,7 @@ export class CardHandComponent extends Component {
     return { status: CardResultStatus.Success, value: cards };
   }
 
-  setDestination(card: Actor): CardResult {
+  public setDestination(card: Actor): CardResult {
     if (this._cards.length >= this.maxCards) {
       return { status: CardResultStatus.Error, message: "Hand is full." };
     }
@@ -514,7 +506,7 @@ export class CardHandComponent extends Component {
     return { status: CardResultStatus.Success, value: card };
   }
 
-  removeCard(card: Actor): CardResult {
+  public removeCard(card: Actor): CardResult {
     //validate card
     let validatedCard = validateCard(card);
     if (!validatedCard) return { status: CardResultStatus.Error, message: "Card is not a valid CardComponent." };
@@ -534,27 +526,27 @@ export class CardHandComponent extends Component {
     return this._cards.length;
   }
 
-  update() {
+  private _update() {
     if (this._dirtyFlag) {
       // relayout cards in hand
       this._dirtyFlag = false;
-      if (this.spread === "flat") this.useFlatLayout();
-      else if (this.spread === "fan") this.useFanLayout();
+      if (this.spread === "flat") this._useFlatLayout();
+      else if (this.spread === "fan") this._useFanLayout();
       this.emitter.emit("handReordered", new HandReorderedEvent(this.owner as Actor));
     }
   }
 
-  useFlatLayout() {
+  private _useFlatLayout() {
     const cardCount = this._cards.length;
     this._cards.forEach((card, index) => {
-      const pos = this._calculateFlatPosition(index, cardCount);
+      const pos = this._calculateFlatPosition(index, cardCount, this._cardWidth);
       card.actions.moveTo({ pos: vec(pos.x, pos.y), duration: 300 });
       card.rotation = pos.rotation;
       card.z = pos.z;
     });
   }
 
-  useFanLayout() {
+  private _useFanLayout() {
     const cardCount = this._cards.length;
     this._cards.forEach((card, index) => {
       const pos: { x: number; y: number; rotation: number; z: number } = this._calculateFanPosition(index, cardCount);
@@ -564,7 +556,7 @@ export class CardHandComponent extends Component {
     });
   }
 
-  getNextCardPosition(): CardResult {
+  public getNextCardPosition(): CardResult {
     if (this._cards.length + 1 >= this.maxCards) return { status: CardResultStatus.Error, message: "Hand is full." };
     const futureCardCount = this._cards.length + 1;
     if (this.spread === "flat")
@@ -575,11 +567,11 @@ export class CardHandComponent extends Component {
   private _calculateCardSpacing(cardCount: number, cardWidth: number): number {
     if (cardCount <= 1) return 0;
     let spacing = cardWidth * 0.8;
-    if (this.maxCardspacing > 0) {
-      spacing = Math.min(spacing, this.maxCardspacing);
+    if (this._maxCardspacing > 0) {
+      spacing = Math.min(spacing, this._maxCardspacing);
     }
-    if (this.minCardspacing > 0) {
-      spacing = Math.max(spacing, this.minCardspacing);
+    if (this._minCardspacing > 0) {
+      spacing = Math.max(spacing, this._minCardspacing);
     }
     return spacing;
   }
@@ -626,16 +618,16 @@ export class CardHandComponent extends Component {
       angle = 0;
     } else {
       // Each card is separated by fanAngle degrees
-      const totalArcAngle = this.fanAngle * (totalCards - 1);
+      const totalArcAngle = this._fanAngle * (totalCards - 1);
       const startAngle = -totalArcAngle / 2;
-      angle = startAngle + index * this.fanAngle;
+      angle = startAngle + index * this._fanAngle;
     }
 
     const angleRad = (angle * Math.PI) / 180;
 
     // Calculate position on the arc
-    const offsetX = Math.sin(angleRad) * this.fanRadius;
-    const offsetY = (1 - Math.cos(angleRad)) * this.fanRadius;
+    const offsetX = Math.sin(angleRad) * this._fanRadius;
+    const offsetY = (1 - Math.cos(angleRad)) * this._fanRadius;
 
     const x = offsetX;
     const y = offsetY;
@@ -648,33 +640,31 @@ export class CardHandComponent extends Component {
     return { x, y, rotation, z };
   }
 
-  canTakeCard(): boolean {
+  public canTakeCard(): boolean {
     return this._cards.length < this.maxCards;
   }
 }
 
 export class TableZoneComponent extends Component {
   private _cards: Actor[] = [];
-  zoneSprite: Sprite | null = null;
-  size: Vector;
-  mode: ZoneModeType;
-  emitter = new EventEmitter<ZoneEvents>();
+  private _zoneSprite: Sprite | null = null;
+  private _size: Vector;
+  public emitter = new EventEmitter<ZoneEvents>();
 
-  constructor(size: Vector, mode: ZoneModeType, sprite?: Sprite) {
+  constructor(size: Vector, sprite?: Sprite) {
     super();
-    if (sprite) this.zoneSprite = sprite;
-    this.size = size;
-    this.mode = mode;
+    if (sprite) this._zoneSprite = sprite;
+    this._size = size;
   }
 
   onAdd(owner: Entity): void {
     if (!owner) return;
     if (!(owner instanceof Actor || owner instanceof ScreenElement)) return;
 
-    if (this.zoneSprite && owner.graphics) {
-      owner.graphics.use(this.zoneSprite);
-      owner.graphics.current!.width = this.size.x;
-      owner.graphics.current!.height = this.size.y;
+    if (this._zoneSprite && owner.graphics) {
+      owner.graphics.use(this._zoneSprite);
+      owner.graphics.current!.width = this._size.x;
+      owner.graphics.current!.height = this._size.y;
     }
   }
 
@@ -682,7 +672,7 @@ export class TableZoneComponent extends Component {
     return this._cards;
   }
 
-  addCard(card: Actor): CardResult {
+  public addCard(card: Actor): CardResult {
     // snap card to zone's position
     if (!this.owner) return { status: CardResultStatus.Error, message: "Zone has no owner." };
     if (!(this.owner instanceof Actor || this.owner instanceof ScreenElement)) {
@@ -697,7 +687,7 @@ export class TableZoneComponent extends Component {
     return { status: CardResultStatus.Success, value: card };
   }
 
-  removeCard(card: Actor): CardResult {
+  public removeCard(card: Actor): CardResult {
     //validate card
     let validatedCard = validateCard(card);
     if (!validatedCard) return { status: CardResultStatus.Error, message: "Card is not a valid CardComponent." };
@@ -707,7 +697,7 @@ export class TableZoneComponent extends Component {
     return { status: CardResultStatus.Success, value: card };
   }
 
-  clear() {
+  public clear() {
     this._cards = [];
   }
 
@@ -717,12 +707,12 @@ export class TableZoneComponent extends Component {
 }
 
 export class TableStackComponent extends Component {
-  _offset: Vector = vec(0, 0);
-  _maxVisible: number = 0;
-  _topCardOnly: boolean = true;
-  _cards: Actor[] = [];
-  _dirtyFlag: boolean = false;
-  _maxCardCount: number = 0;
+  private _offset: Vector = vec(0, 0);
+  private _maxVisible: number = 0;
+  private _topCardOnly: boolean = true;
+  private _cards: Actor[] = [];
+  private _dirtyFlag: boolean = false;
+  private _maxCardCount: number = 0;
 
   constructor(config: TableStackOptions) {
     super();
@@ -736,12 +726,12 @@ export class TableStackComponent extends Component {
     let stack = qualifyEntity(owner);
     if (!stack) return;
 
-    stack.on("preupdate", this.update.bind(this));
+    stack.on("preupdate", this._update.bind(this));
   }
   onRemove(previousOwner: Entity): void {
     let stack = qualifyEntity(previousOwner);
     if (!stack) return;
-    stack.off("preupdate", this.update.bind(this));
+    stack.off("preupdate", this._update.bind(this));
   }
 
   // getters and setters
@@ -773,7 +763,7 @@ export class TableStackComponent extends Component {
     this._dirtyFlag = value;
   }
 
-  clear() {
+  public clear() {
     this._cards = [];
   }
 
@@ -785,13 +775,13 @@ export class TableStackComponent extends Component {
     return this._cards[this._cards.length - 1];
   }
 
-  canTakeCard(): boolean {
+  public canTakeCard(): boolean {
     if (this._maxCardCount === 0) return true;
     return this._cards.length < this._maxCardCount;
   }
 
   // class utilities
-  addCard(card: Actor): CardResult {
+  public addCard(card: Actor): CardResult {
     //validate card
     let validatedCard = validateCard(card);
     if (!validatedCard) return { status: CardResultStatus.Error, message: "Card is not a valid CardComponent." };
@@ -808,7 +798,7 @@ export class TableStackComponent extends Component {
     return { status: CardResultStatus.Success, value: card };
   }
 
-  setDestination(card: Actor): CardResult {
+  public setDestination(card: Actor): CardResult {
     //validate card has card component
     let validCard = validateCard(card);
     if (!validCard) return { status: CardResultStatus.Error, message: "Card is not a valid CardComponent." };
@@ -820,7 +810,7 @@ export class TableStackComponent extends Component {
     return { status: CardResultStatus.Success, value: card };
   }
 
-  addCards(cards: Actor[]): CardResult {
+  public addCards(cards: Actor[]): CardResult {
     for (let i = 0; i < cards.length; i++) {
       let result = this.addCard(cards[i]);
       if (result.status === CardResultStatus.Error) return result;
@@ -829,7 +819,7 @@ export class TableStackComponent extends Component {
     return { status: CardResultStatus.Success, value: cards };
   }
 
-  removeCard(card: Actor): CardResult {
+  public removeCard(card: Actor): CardResult {
     //validate card
     let validatedCard = validateCard(card);
     if (!validatedCard) return { status: CardResultStatus.Error, message: "Card is not a valid CardComponent." };
@@ -843,11 +833,11 @@ export class TableStackComponent extends Component {
     this.dirtyFlag = true;
     return { status: CardResultStatus.Success, value: card };
   }
-  removeCards(cards: Actor[]) {
+  public removeCards(cards: Actor[]) {
     cards.forEach(card => this.removeCard(card));
   }
 
-  getNextCardPosition(): Vector {
+  public getNextCardPosition(): Vector {
     const owner = this.owner as Actor;
     if (!owner) return vec(0, 0);
     const basePos = owner.pos.clone();
@@ -855,7 +845,7 @@ export class TableStackComponent extends Component {
     return basePos.add(offsetAmount);
   }
 
-  update(evt: PreUpdateEvent) {
+  private _update(evt: PreUpdateEvent) {
     if (!evt) return;
     if (!this._dirtyFlag) return;
     let owner = this.owner as Actor;
@@ -873,41 +863,42 @@ export class TableStackComponent extends Component {
 }
 
 export class TableComponent extends Component {
-  zones: Record<string, TableZoneComponent> = {};
-  zonesToAdd: Record<string, TableZoneComponent> = {};
+  private _zones: Record<string, TableZoneComponent> = {};
+  private _zonesToAdd: Record<string, TableZoneComponent> = {};
 
   onAdd(owner: Entity): void {
     if (!owner) return;
     if (!(owner instanceof Actor || owner instanceof ScreenElement)) return;
-    owner.on("preupdate", this.update.bind(this));
+    owner.on("preupdate", this._update.bind(this));
   }
 
   onRemove(previousOwner: Entity): void {
     if (!previousOwner) return;
     if (!(previousOwner instanceof Actor || previousOwner instanceof ScreenElement)) return;
-    previousOwner.off("preupdate", this.update.bind(this));
+    previousOwner.off("preupdate", this._update.bind(this));
   }
 
-  addZone(name: string, zone: Actor | ScreenElement): CardResult {
+  public addZone(name: string, zone: Actor | ScreenElement): CardResult {
     if (!zone.has(TableZoneComponent)) return { status: CardResultStatus.Error, message: "Zone is not a valid TableZoneComponent." };
-    this.zonesToAdd[name] = zone.get(TableZoneComponent);
+    this._zonesToAdd[name] = zone.get(TableZoneComponent);
     return { status: CardResultStatus.Success, value: zone };
   }
 
-  getZone(name: string): TableZoneComponent | undefined {
-    return this.zones[name];
+  public getZone(name: string): CardResult {
+    if (!this._zones[name]) return { status: CardResultStatus.Error, message: "Zone does not exist." };
+    return { status: CardResultStatus.Success, value: this._zones[name] };
   }
 
-  update() {
+  private _update() {
     if (!this.owner) return;
 
     // check zone add for scheduled zones to add
-    for (let zoneName in this.zonesToAdd) {
-      let zone = this.zonesToAdd[zoneName];
+    for (let zoneName in this._zonesToAdd) {
+      let zone = this._zonesToAdd[zoneName];
       if (!zone.owner) continue;
-      this.zones[zoneName] = this.zonesToAdd[zoneName];
+      this._zones[zoneName] = this._zonesToAdd[zoneName];
       this.owner.addChild(zone.owner);
-      delete this.zonesToAdd[zoneName];
+      delete this._zonesToAdd[zoneName];
     }
   }
 }

@@ -428,8 +428,8 @@ export class CardDeckComponent extends Component {
 export class CardHandComponent extends Component {
   private _cards: Actor[] = [];
   private _dirtyFlag: boolean = false;
-  private maxCards: number = Infinity;
-  private spread: "flat" | "fan" = "flat";
+  private _maxCards: number = Infinity;
+  private _spread: "flat" | "fan" = "flat";
   private _maxCardspacing: number = -1;
   private _minCardspacing: number = -1;
   private _cardWidth: number = 80;
@@ -441,8 +441,8 @@ export class CardHandComponent extends Component {
 
   constructor(config: CardHandOptions) {
     super();
-    this.maxCards = config.maxCards ? config.maxCards : Infinity;
-    this.spread = config.spread ? config.spread : "flat";
+    this._maxCards = config.maxCards ? config.maxCards : Infinity;
+    this._spread = config.spread ? config.spread : "flat";
     this._maxCardspacing = config.maxCardspacing ? config.maxCardspacing : -1;
     this._minCardspacing = config.minCardspacing ? config.minCardspacing : -1;
     if (config.fanAngle) this._fanAngle = config.fanAngle;
@@ -490,7 +490,7 @@ export class CardHandComponent extends Component {
 
   public addCards(cards: Actor[]): CardResult {
     // check for max cards
-    if (this._cards.length + cards.length > this.maxCards) return { status: CardResultStatus.Error, message: "Hand is full." };
+    if (this._cards.length + cards.length > this._maxCards) return { status: CardResultStatus.Error, message: "Hand is full." };
     for (let card of cards) {
       let result = this.addCard(card);
       if (result.status === CardResultStatus.Error) return result;
@@ -499,7 +499,7 @@ export class CardHandComponent extends Component {
   }
 
   public setDestination(card: Actor): CardResult {
-    if (this._cards.length >= this.maxCards) {
+    if (this._cards.length >= this._maxCards) {
       return { status: CardResultStatus.Error, message: "Hand is full." };
     }
     this._cards.push(card);
@@ -530,8 +530,8 @@ export class CardHandComponent extends Component {
     if (this._dirtyFlag) {
       // relayout cards in hand
       this._dirtyFlag = false;
-      if (this.spread === "flat") this._useFlatLayout();
-      else if (this.spread === "fan") this._useFanLayout();
+      if (this._spread === "flat") this._useFlatLayout();
+      else if (this._spread === "fan") this._useFanLayout();
       this.emitter.emit("handReordered", new HandReorderedEvent(this.owner as Actor));
     }
   }
@@ -557,9 +557,9 @@ export class CardHandComponent extends Component {
   }
 
   public getNextCardPosition(): CardResult {
-    if (this._cards.length + 1 >= this.maxCards) return { status: CardResultStatus.Error, message: "Hand is full." };
+    if (this._cards.length + 1 >= this._maxCards) return { status: CardResultStatus.Error, message: "Hand is full." };
     const futureCardCount = this._cards.length + 1;
-    if (this.spread === "flat")
+    if (this._spread === "flat")
       return { status: CardResultStatus.Success, value: this._calculateFlatPosition(this._cards.length, futureCardCount) };
     else return { status: CardResultStatus.Success, value: this._calculateFanPosition(this._cards.length, futureCardCount) };
   }
@@ -641,7 +641,7 @@ export class CardHandComponent extends Component {
   }
 
   public canTakeCard(): boolean {
-    return this._cards.length < this.maxCards;
+    return this._cards.length < this._maxCards;
   }
 }
 

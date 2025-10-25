@@ -8,6 +8,7 @@ deck-building, trading card games, and more.
 - [Installation](#installation)
 - [Quick Start](#quick-start)
 - [Core Concepts](#core-concepts)
+  - [Card Result](#card-result)   
 - [Components](#components)
   - [CardComponent](#cardcomponent)
   - [PlayingCardComponent](#playingcardcomponent)

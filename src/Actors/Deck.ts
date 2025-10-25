@@ -3,6 +3,7 @@ import { cardBack, deckSS } from "../resources";
 import {
   CardDeckComponent,
   CardHandComponent,
+  CardResultStatus,
   CardStatus,
   moveAndFlipCard,
   PlayingCardRank,
@@ -51,11 +52,12 @@ export class PlayingDeck extends Actor {
         let handComponent = hand.get(CardHandComponent);
         if (!handComponent) return;
         if (handComponent.canTakeCard() === false) return;
-        // get the top card from the deck and place it in the hand
-        let cards = this.deckComponent.drawCards();
-        if (!cards) return;
 
-        let drawnCard = cards[0] as PlayingCard;
+        // get the top card from the deck and place it in the hand
+        // using the CardResult return value
+        let cards = this.deckComponent.drawCards();
+        if (cards.status == CardResultStatus.Error) return;
+        let drawnCard = cards.value[0] as PlayingCard;
         handComponent.setDestination(drawnCard);
 
         // remove card from deck
@@ -65,7 +67,8 @@ export class PlayingDeck extends Actor {
         scene.add(drawnCard);
 
         let handScreenPosition = handComponent.getNextCardPosition();
-        let nextPosition = vec(handScreenPosition.x, handScreenPosition.y).add((hand as PlayingHand).pos);
+        if (handScreenPosition.status == CardResultStatus.Error) return;
+        let nextPosition = vec(handScreenPosition.value.x, handScreenPosition.value.y).add((hand as PlayingHand).pos);
 
         drawnCard.actions
           .runAction(
@@ -98,10 +101,11 @@ export class PlayingDeck extends Actor {
         if (!zone) return;
         let zoneComponent = zone.get(TableZoneComponent);
         if (!zoneComponent) return;
-        let cards = this.deckComponent.drawCards();
-        if (!cards) return;
 
-        let drawnCard = cards[0] as PlayingCard;
+        // using the CardResult return value
+        let cards = this.deckComponent.drawCards();
+        if (cards.status == CardResultStatus.Error) return;
+        let drawnCard = cards.value[0] as PlayingCard;
         stackComponent.setDestination(drawnCard);
 
         // remove card from deck
@@ -112,6 +116,7 @@ export class PlayingDeck extends Actor {
         let stackPosition = stackComponent.getNextCardPosition();
         let nextPosition = vec(stackPosition.x, stackPosition.y).add(zone.pos);
         scene.add(drawnCard);
+
         drawnCard.actions
           .runAction(
             coroutineAction(moveAndFlipCard, {

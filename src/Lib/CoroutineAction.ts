@@ -10,6 +10,8 @@ export class CoroutineAction implements Action {
    * @param coroutineFactory - Function that creates the coroutine generator
    * @param ctx - Optional context object to pass to the coroutine
    */
+
+  // eslint-disable-next-line no-unused-vars
   constructor(private coroutineFactory: (actor: Actor, ctx?: any) => Generator<any, void, number>, private ctx?: any) {}
 
   isComplete(actor: Actor): boolean {
@@ -21,7 +23,7 @@ export class CoroutineAction implements Action {
     return this._stopped || (this._coroutineInstance?.isComplete() ?? false);
   }
 
-  update(elapsed: number): void {
+  update(): void {
     if (!this._coroutineInstance && !this._stopped && this._actor) {
       // Start the coroutine on first update
       const engine = Engine.useEngine();
@@ -53,6 +55,7 @@ export class CoroutineAction implements Action {
   }
 }
 
+// eslint-disable-next-line no-unused-vars
 export function coroutineAction(coroutine: (actor: Actor, ctx?: any) => Generator<any, void, number>, ctx?: any): CoroutineAction {
   return new CoroutineAction(coroutine, ctx);
 }

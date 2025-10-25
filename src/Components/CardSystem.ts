@@ -14,8 +14,14 @@ import {
   clamp,
   PointerAbstraction,
   lerpVector,
+  Action,
+  CoroutineInstance,
+  Engine,
+  coroutine,
+  nextActionId,
+  EventEmitter,
+  GameEvent,
 } from "excalibur";
-import { coroutineAction } from "../Lib/CoroutineAction";
 
 /*
  * Type Definitions
@@ -78,6 +84,7 @@ export interface CardHandOptions {
   minCardspacing?: number;
   fanAngle?: number;
   fanRadius?: number;
+  cardWidth?: number;
 }
 
 export interface TableStackOptions {
@@ -124,16 +131,17 @@ export type PlayingCardRankType = (typeof PlayingCardRank)[keyof typeof PlayingC
  * Card Components
  */
 //#region Card Component
-export class CardComponent extends Component {
+export class CardComponent<TData = unknown> extends Component {
   protected _isFaceUp = false;
   protected _status: CardStatusType = CardStatus.InDeck;
   protected _cardFace: Sprite;
   protected _cardBack: Sprite;
-  protected _data: any;
+  protected _data: TData | null = null;
   protected _isHovered = false;
   protected _isOwned = false;
   protected _isOwnedBy: number | null = null;
-  protected pointerReference: any;
+  protected pointerReference: PointerAbstraction | null = null;
+  cardEmitter = new EventEmitter<CardEvents>();
 
   constructor(config: CardOptions) {
     super();
@@ -161,6 +169,8 @@ export class CardComponent extends Component {
     if (this._isFaceUp) card.graphics.use("cardFace");
     else card.graphics.use("cardBack");
     owner.on("preupdate", this.update.bind(this));
+
+    this.cardEmitter.emit("cardcreated", new CardCreatedEvent(card));
   }
 
   onRemove(previousOwner: Entity): void {
@@ -172,7 +182,17 @@ export class CardComponent extends Component {
   update(): void {
     if (!this.pointerReference) this.pointerReference = this.owner!.scene!.engine.input.pointers.primary;
     let bounds = (this.owner as Actor).graphics.bounds;
-    this._isHovered = bounds.contains((this.pointerReference as PointerAbstraction).lastWorldPos);
+    let currentHovered = this._isHovered;
+    this._isHovered = bounds.contains(this.pointerReference.lastWorldPos);
+
+    if (currentHovered !== this._isHovered) {
+      //hover changed
+      if (this._isHovered) {
+        this.cardEmitter.emit("cardhovered", new CardHoveredEvent(this.owner as Actor));
+      } else {
+        this.cardEmitter.emit("cardunhovered", new CardUnhoveredEvent(this.owner as Actor));
+      }
+    }
   }
 
   get isFaceUp() {
@@ -186,14 +206,21 @@ export class CardComponent extends Component {
     return this._status;
   }
   set status(value: CardStatusType) {
+    let previousStatus = this._status;
     this._status = value;
+
+    if (previousStatus !== value)
+      this.cardEmitter.emit(
+        "cardOwnerStatusChanged",
+        new CardOwnerStatusChangedEvent(this.owner as Actor, previousStatus, this._status)
+      );
   }
 
   flip(duration: number) {
     let card = qualifyEntity(this.owner as Entity);
     if (!card) return;
     card = this.owner as ScreenElement | Actor;
-    card.actions.runAction(coroutineAction(flipCard, { duration, yoffset: 8 }));
+    card.actions.runAction(coroutineAction(flipCard, { duration, yoffset: 8, emitter: this.cardEmitter }));
   }
 
   set isOwned(value: boolean) {
@@ -211,12 +238,14 @@ export class CardComponent extends Component {
   cancelPointerEvent() {}
 
   set isOwnedBy(value: number | null) {
+    let previousOwner = this._isOwnedBy;
     if (value && value < 0) value = null;
-
     if (value == null) this._isOwned = false;
     else this._isOwned = true;
 
     this._isOwnedBy = value;
+    if (previousOwner !== value)
+      this.cardEmitter.emit("cardOwnerChanged", new CardOwnerChangedEvent(this.owner as Actor, previousOwner, value));
   }
 
   get isOwnedBy() {
@@ -253,6 +282,7 @@ export class CardDeckComponent extends Component {
   private _autoSizing: boolean = false;
   private _stackDirection: Vector = Vector.Down;
   private _maxShuffles: number = 1;
+  emitter: EventEmitter = new EventEmitter<DeckEvents>();
 
   constructor(config: CardDeckOptions) {
     super();
@@ -282,6 +312,7 @@ export class CardDeckComponent extends Component {
       })
     );
     card.on("preupdate", this.update.bind(this));
+    this.emitter.emit("deckCreated", new DeckCreatedEvent(owner as Actor));
   }
 
   onRemove(previousOwner: Entity): void {
@@ -297,8 +328,6 @@ export class CardDeckComponent extends Component {
     x = this._cards.length * (this._cardThickness * this._stackDirection.x);
     y = this._cards.length * (this._cardThickness * this._stackDirection.y);
 
-    // x = this._deckSize * (this._cardThickness * this._stackDirection.x);
-    // y = this._deckSize * (this._cardThickness * this._stackDirection.y);
     return new Vector(x, y);
   }
 
@@ -310,39 +339,63 @@ export class CardDeckComponent extends Component {
     return this._cards[this._cards.length - 1];
   }
 
-  addCard(card: Actor) {
-    //TODO
-    // add validation to this
-    this._cards.push(card);
+  addCard(card: Actor): CardResult {
+    let validatedCard = validateCard(card);
+    if (!validatedCard) return { status: CardResultStatus.Error, message: "Card is not a valid CardComponent." };
+    if (this._cards.length >= this._maxCards) return { status: CardResultStatus.Error, message: "Deck is full." };
+    this._cards.push(validatedCard);
+    this.emitter.emit("cardAdded", new DeckCardAddedEvent(this.owner as Actor));
+    return { status: CardResultStatus.Success, value: validatedCard };
   }
 
-  addCards(cards: Actor[]) {
-    //TODO
-    // add validation to this
-    this._cards.push(...cards);
+  addCards(cards: Actor[]): CardResult {
+    //length check
+    if (this._cards.length + cards.length > this._maxCards) return { status: CardResultStatus.Error, message: "Deck is full." };
+    for (let card of cards) {
+      let result = this.addCard(card);
+      if (result.status === CardResultStatus.Error) return result;
+    }
+    return { status: CardResultStatus.Success, value: cards };
   }
 
-  removeCard(card: Actor) {
-    const index = this._cards.indexOf(card);
+  removeCard(card: Actor): CardResult {
+    let validatedCard = validateCard(card);
+    if (!validatedCard) return { status: CardResultStatus.Error, message: "Card is not a valid CardComponent." };
+
+    const index = this._cards.indexOf(validatedCard as Actor);
+    if (index === -1) return { status: CardResultStatus.Error, message: "Card is not in the deck." };
 
     // if card is child of deck, remove parentage
     if (card.parent === this.owner) {
       this.owner.removeChild(card);
     }
-    if (index !== -1) this._cards.splice(index, 1);
+    this._cards.splice(index, 1);
+    this.emitter.emit("cardRemoved", new DeckCardRemovedEvent(this.owner as Actor));
+    return { status: CardResultStatus.Success, value: card };
   }
 
-  drawCards(numCards?: number): Actor[] | undefined {
+  drawCards(numCards?: number): CardResult {
     if (!numCards) numCards = 1;
+    // not enough cards
+    if (this._cards.length < numCards) return { status: CardResultStatus.Error, message: "Not enough cards in the deck." };
     numCards = clamp(numCards, 0, this._maxCards);
 
-    let drawn: Actor[] | undefined = [];
+    let drawn: Actor[] = [];
     for (let i = 0; i < numCards; i++) {
       let drawnCard = this._cards.pop();
-      if (!drawnCard) break;
+      if (!drawnCard) return { status: CardResultStatus.Error, message: "Deck is empty." };
+      let validatedCard = validateCard(drawnCard);
+      if (!validatedCard) return { status: CardResultStatus.Error, message: "Card is not a valid CardComponent." };
       drawn.push(drawnCard);
     }
-    return drawn;
+    this.emitter.emit("cardsDrawn", new DeckCardDrawnEvent(this.owner as Actor, drawn, numCards));
+    return { status: CardResultStatus.Success, value: drawn };
+  }
+
+  clearDeck() {
+    this._cards = [];
+    this._newDeckSize = 0;
+    this.emitter.emit("deckCleared", new DeckClearedEvent(this.owner as Actor));
   }
 
   set displayedSize(numCards: number) {
@@ -359,6 +412,7 @@ export class CardDeckComponent extends Component {
     if (numShuffles && numShuffles > this._maxShuffles) numShuffles = this._maxShuffles;
     let rng = new Random();
     for (let i = 0; i < numShuffles; i++) this._cards = rng.shuffle(this._cards);
+    this.emitter.emit("deckShuffled", new DeckShuffleEvent(this.owner as Actor, numShuffles));
   }
 
   get count() {
@@ -374,7 +428,6 @@ export class CardDeckComponent extends Component {
       if (this._autoSizing) this._deckSize = this._cards.length;
       else this._deckSize = this._newDeckSize;
       this._deckSize = clamp(this._deckSize, 0, this._maxCards);
-
       (deck.graphics.current as DeckGraphics).updateDeckSize(this._deckSize);
     }
   }
@@ -383,11 +436,12 @@ export class CardDeckComponent extends Component {
 export class CardHandComponent extends Component {
   private _cards: Actor[] = [];
   private _dirtyFlag: boolean = false;
-  private _config: CardHandOptions;
   private maxCards: number = Infinity;
   private spread: "flat" | "fan" = "flat";
   private maxCardspacing: number = -1;
   private minCardspacing: number = -1;
+  private _cardWidth: number = 80;
+  emitter = new EventEmitter<HandEvents>();
 
   // Fan layout specific properties
   private fanAngle: number = 8; // Angle between each card in degrees
@@ -395,13 +449,13 @@ export class CardHandComponent extends Component {
 
   constructor(config: CardHandOptions) {
     super();
-    this._config = config;
     this.maxCards = config.maxCards ? config.maxCards : Infinity;
     this.spread = config.spread ? config.spread : "flat";
     this.maxCardspacing = config.maxCardspacing ? config.maxCardspacing : -1;
     this.minCardspacing = config.minCardspacing ? config.minCardspacing : -1;
     if (config.fanAngle) this.fanAngle = config.fanAngle;
     if (config.fanRadius) this.fanRadius = config.fanRadius;
+    if (config.cardWidth) this._cardWidth = config.cardWidth;
   }
 
   get cards() {
@@ -412,6 +466,7 @@ export class CardHandComponent extends Component {
     let hand = qualifyEntity(owner);
     if (!hand) return;
     hand.on("preupdate", this.update.bind(this));
+    this.emitter.emit("handCreated", new HandCreatedEvent(owner as Actor));
   }
 
   onRemove(previousOwner: Entity): void {
@@ -420,65 +475,79 @@ export class CardHandComponent extends Component {
     hand.off("preupdate", this.update.bind(this));
   }
 
-  addCard(card: Actor) {
+  clearHand() {
+    this._cards = [];
+    this._dirtyFlag = true;
+    this.emitter.emit("handCleared", new HandClearedEvent(this.owner as Actor));
+  }
+
+  addCard(card: Actor): CardResult {
+    //validate card
+    let validatedCard = validateCard(card);
+    if (!validatedCard) return { status: CardResultStatus.Error, message: "Card is not a valid CardComponent." };
+
     // Make card a child of the hand entity
     if (this.owner && card.parent !== this.owner) {
       this.owner.addChild(card);
       this._dirtyFlag = true;
     }
+
+    this.emitter.emit("cardAdded", new HandCardAddedEvent(this.owner as Actor, card));
+    return { status: CardResultStatus.Success, value: card };
   }
 
-  addCards(cards: Actor[]) {
-    cards.forEach(card => this.addCard(card));
-  }
-
-  setDestination(card: Actor) {
-    if (this._cards.length >= this.maxCards) {
-      console.warn("Hand is full, cannot add more cards");
-      return;
+  addCards(cards: Actor[]): CardResult {
+    // check for max cards
+    if (this._cards.length + cards.length > this.maxCards) return { status: CardResultStatus.Error, message: "Hand is full." };
+    for (let card of cards) {
+      let result = this.addCard(card);
+      if (result.status === CardResultStatus.Error) return result;
     }
-
-    this._cards.push(card);
+    return { status: CardResultStatus.Success, value: cards };
   }
 
-  removeCard(card: Actor) {
+  setDestination(card: Actor): CardResult {
+    if (this._cards.length >= this.maxCards) {
+      return { status: CardResultStatus.Error, message: "Hand is full." };
+    }
+    this._cards.push(card);
+    return { status: CardResultStatus.Success, value: card };
+  }
+
+  removeCard(card: Actor): CardResult {
+    //validate card
+    let validatedCard = validateCard(card);
+    if (!validatedCard) return { status: CardResultStatus.Error, message: "Card is not a valid CardComponent." };
+
     const index = this._cards.indexOf(card);
+    if (index === -1) return { status: CardResultStatus.Error, message: "Card is not in the hand." };
 
     // Remove parentage if card is child of hand
-    if (card.parent === this.owner) {
-      this.owner.removeChild(card);
-    }
-
-    if (index !== -1) {
-      this._cards.splice(index, 1);
-      this._dirtyFlag = true;
-    }
+    if (card.parent === this.owner) this.owner.removeChild(card);
+    this._cards.splice(index, 1);
+    this._dirtyFlag = true;
+    this.emitter.emit("cardRemoved", new HandCardRemovedEvent(this.owner as Actor, card));
+    return { status: CardResultStatus.Success, value: card };
   }
 
   get count() {
     return this._cards.length;
   }
 
-  update(evt: PreUpdateEvent) {
-    if (!evt) return;
-
+  update() {
     if (this._dirtyFlag) {
       // relayout cards in hand
       this._dirtyFlag = false;
       if (this.spread === "flat") this.useFlatLayout();
       else if (this.spread === "fan") this.useFanLayout();
+      this.emitter.emit("handReordered", new HandReorderedEvent(this.owner as Actor));
     }
   }
 
   useFlatLayout() {
     const cardCount = this._cards.length;
-
     this._cards.forEach((card, index) => {
-      const pos = this.calculateFlatPosition(index, cardCount);
-
-      // Set relative position (relative to hand entity)
-      //card.pos.x = pos.x;
-      //card.pos.y = pos.y;
+      const pos = this._calculateFlatPosition(index, cardCount);
       card.actions.moveTo({ pos: vec(pos.x, pos.y), duration: 300 });
       card.rotation = pos.rotation;
       card.z = pos.z;
@@ -488,74 +557,58 @@ export class CardHandComponent extends Component {
   useFanLayout() {
     const cardCount = this._cards.length;
     this._cards.forEach((card, index) => {
-      const pos: { x: number; y: number; rotation: number; z: number } = this.calculateFanPosition(index, cardCount);
+      const pos: { x: number; y: number; rotation: number; z: number } = this._calculateFanPosition(index, cardCount);
       card.actions.moveTo({ pos: vec(pos.x, pos.y), duration: 300 });
       card.rotation = pos.rotation;
       card.z = pos.z;
     });
   }
 
-  getNextCardPosition(): { x: number; y: number; rotation: number; z: number } {
+  getNextCardPosition(): CardResult {
+    if (this._cards.length + 1 >= this.maxCards) return { status: CardResultStatus.Error, message: "Hand is full." };
     const futureCardCount = this._cards.length + 1;
-
-    if (this.spread === "flat") {
-      return this.calculateFlatPosition(this._cards.length, futureCardCount);
-    } else {
-      return this.calculateFanPosition(this._cards.length, futureCardCount);
-    }
+    if (this.spread === "flat")
+      return { status: CardResultStatus.Success, value: this._calculateFlatPosition(this._cards.length, futureCardCount) };
+    else return { status: CardResultStatus.Success, value: this._calculateFanPosition(this._cards.length, futureCardCount) };
   }
 
-  private calculateCardSpacing(cardCount: number, cardWidth: number): number {
+  private _calculateCardSpacing(cardCount: number, cardWidth: number): number {
     if (cardCount <= 1) return 0;
-
-    // Start with card width as default spacing
     let spacing = cardWidth * 0.8;
-
-    // Apply max spacing constraint
     if (this.maxCardspacing > 0) {
       spacing = Math.min(spacing, this.maxCardspacing);
     }
-
-    // Apply min spacing constraint if cards would overlap too much
     if (this.minCardspacing > 0) {
       spacing = Math.max(spacing, this.minCardspacing);
     }
-
     return spacing;
   }
 
-  private calculateFlatPosition(index: number, totalCards: number): { x: number; y: number; rotation: number; z: number } {
-    if (totalCards === 0) {
-      return { x: 0, y: 0, rotation: 0, z: 0 };
-    }
-
+  private _calculateFlatPosition(
+    index: number,
+    totalCards: number,
+    cardWidth?: number
+  ): { x: number; y: number; rotation: number; z: number } {
+    const _cardWidth = cardWidth ? cardWidth : 80; // Adjust this to match your actual card width
+    if (totalCards === 0) return { x: 0, y: 0, rotation: 0, z: 0 };
     const hand = this.owner as Actor;
-    if (!hand) {
-      return { x: 0, y: 0, rotation: 0, z: 0 };
-    }
-
-    // Assume cards have a standard width - adjust based on your card size
-    const cardWidth = 80; // Adjust this to match your actual card width
-    const spacing = this.calculateCardSpacing(totalCards, cardWidth);
+    if (!hand) return { x: 0, y: 0, rotation: 0, z: 0 };
+    const spacing = this._calculateCardSpacing(totalCards, _cardWidth);
 
     // For odd number of cards, middle card is at center (position 0)
     // For even number, cards split evenly on both sides
     const middleIndex = Math.floor(totalCards / 2);
     const isOdd = totalCards % 2 === 1;
-
     const offsetX = isOdd ? (index - middleIndex) * spacing : (index - middleIndex + 0.5) * spacing;
-
     const x = 0 + offsetX;
     const y = 0;
     const rotation = 0;
-
     // Z-index: left to right, leftmost card has lowest z
     const z = index;
-
     return { x, y, rotation, z };
   }
 
-  private calculateFanPosition(index: number, totalCards: number): { x: number; y: number; rotation: number; z: number } {
+  private _calculateFanPosition(index: number, totalCards: number): { x: number; y: number; rotation: number; z: number } {
     if (totalCards === 0) {
       return { x: 0, y: 0, rotation: 0, z: 0 };
     }
@@ -599,11 +652,13 @@ export class CardHandComponent extends Component {
     return this._cards.length < this.maxCards;
   }
 }
+
 export class TableZoneComponent extends Component {
   private _cards: Actor[] = [];
   zoneSprite: Sprite | null = null;
   size: Vector;
   mode: ZoneModeType;
+  emitter = new EventEmitter<ZoneEvents>();
 
   constructor(size: Vector, mode: ZoneModeType, sprite?: Sprite) {
     super();
@@ -627,18 +682,29 @@ export class TableZoneComponent extends Component {
     return this._cards;
   }
 
-  addCard(card: Actor) {
+  addCard(card: Actor): CardResult {
     // snap card to zone's position
-    if (!this.owner) return;
-    if (!(this.owner instanceof Actor || this.owner instanceof ScreenElement)) return;
+    if (!this.owner) return { status: CardResultStatus.Error, message: "Zone has no owner." };
+    if (!(this.owner instanceof Actor || this.owner instanceof ScreenElement)) {
+      return { status: CardResultStatus.Error, message: "Zone owner is not an Actor or ScreenElement." };
+    }
+    //validate card
+    let validatedCard = validateCard(card);
+    if (!validatedCard) return { status: CardResultStatus.Error, message: "Card is not a valid CardComponent." };
 
     card.pos = this.owner.pos.clone();
     this._cards.push(card);
+    return { status: CardResultStatus.Success, value: card };
   }
 
-  removeCard(card: Actor) {
+  removeCard(card: Actor): CardResult {
+    //validate card
+    let validatedCard = validateCard(card);
+    if (!validatedCard) return { status: CardResultStatus.Error, message: "Card is not a valid CardComponent." };
     const index = this._cards.indexOf(card);
+    if (index === -1) return { status: CardResultStatus.Error, message: "Card not found in zone." };
     if (index !== -1) this._cards.splice(index, 1);
+    return { status: CardResultStatus.Success, value: card };
   }
 
   clear() {
@@ -725,35 +791,57 @@ export class TableStackComponent extends Component {
   }
 
   // class utilities
-  addCard(card: Actor) {
-    this.owner?.addChild(card);
-    card.pos = this.getNextCardPosition();
-    this.dirtyFlag = true;
-  }
-
-  setDestination(card: Actor) {
-    //validate card has card component
-    let validCard = validateCard(card);
-    if (!validCard) return;
+  addCard(card: Actor): CardResult {
+    //validate card
+    let validatedCard = validateCard(card);
+    if (!validatedCard) return { status: CardResultStatus.Error, message: "Card is not a valid CardComponent." };
 
     if (this._maxCardCount !== 0 && this._cards.length >= this._maxCardCount) {
-      console.warn("Stack is full, cannot add more cards");
-      return;
+      return { status: CardResultStatus.Error, message: "Stack is full, cannot add more cards" };
     }
 
+    if (!this.owner) return { status: CardResultStatus.Error, message: "Stack has no owner." };
+
+    this.owner.addChild(card);
+    card.pos = this.getNextCardPosition();
+    this.dirtyFlag = true;
+    return { status: CardResultStatus.Success, value: card };
+  }
+
+  setDestination(card: Actor): CardResult {
+    //validate card has card component
+    let validCard = validateCard(card);
+    if (!validCard) return { status: CardResultStatus.Error, message: "Card is not a valid CardComponent." };
+
+    if (this._maxCardCount !== 0 && this._cards.length >= this._maxCardCount) {
+      return { status: CardResultStatus.Error, message: "Stack is full, cannot add more cards" };
+    }
     this._cards.push(card);
+    return { status: CardResultStatus.Success, value: card };
   }
 
-  addCards(cards: Actor[]) {
-    cards.forEach(card => this.addCard(card));
+  addCards(cards: Actor[]): CardResult {
+    for (let i = 0; i < cards.length; i++) {
+      let result = this.addCard(cards[i]);
+      if (result.status === CardResultStatus.Error) return result;
+    }
+    this.dirtyFlag = true;
+    return { status: CardResultStatus.Success, value: cards };
   }
 
-  removeCard(card: Actor) {
+  removeCard(card: Actor): CardResult {
+    //validate card
+    let validatedCard = validateCard(card);
+    if (!validatedCard) return { status: CardResultStatus.Error, message: "Card is not a valid CardComponent." };
+
     const index = this._cards.indexOf(card);
+    if (index === -1) return { status: CardResultStatus.Error, message: "Card is not in the stack." };
+
     // remove child if card is child of stack
     if (card.parent === this.owner) this.owner?.removeChild(card);
-    if (index !== -1) this._cards.splice(index, 1);
+    this._cards.splice(index, 1);
     this.dirtyFlag = true;
+    return { status: CardResultStatus.Success, value: card };
   }
   removeCards(cards: Actor[]) {
     cards.forEach(card => this.removeCard(card));
@@ -769,27 +857,17 @@ export class TableStackComponent extends Component {
 
   update(evt: PreUpdateEvent) {
     if (!evt) return;
-
-    // Only update positions if dirty flag is set
     if (!this._dirtyFlag) return;
-
     let owner = this.owner as Actor;
     if (!owner) return;
 
     const basePos = owner.pos.clone();
-
-    // Loop through cards and reposition them
     this._cards.forEach((card, index) => {
-      // Calculate position with offset
-      //confirm card is child of owner
       if (card.parent !== this.owner) return;
       const offsetAmount = this._offset.scale(index);
       card.pos = basePos.add(offsetAmount);
-      // Set z-index (higher index = higher z)
       card.z = owner.z + index + 1;
     });
-
-    // Clear the dirty flag after updating
     this._dirtyFlag = false;
   }
 }
@@ -810,12 +888,13 @@ export class TableComponent extends Component {
     previousOwner.off("preupdate", this.update.bind(this));
   }
 
-  addZone(name: string, zone: Actor | ScreenElement) {
-    if (!zone.has(TableZoneComponent)) return;
+  addZone(name: string, zone: Actor | ScreenElement): CardResult {
+    if (!zone.has(TableZoneComponent)) return { status: CardResultStatus.Error, message: "Zone is not a valid TableZoneComponent." };
     this.zonesToAdd[name] = zone.get(TableZoneComponent);
+    return { status: CardResultStatus.Success, value: zone };
   }
 
-  getZone(name: string) {
+  getZone(name: string): TableZoneComponent | undefined {
     return this.zones[name];
   }
 
@@ -848,10 +927,12 @@ export function* flipCard(
   ctx: {
     duration?: number;
     yOffset?: number;
+    emitter?: EventEmitter<CardEvents>;
   } = {}
 ) {
   const duration = ctx.duration ?? 200;
   const yOffset = ctx.yOffset ?? 10;
+  const emitter = ctx.emitter;
 
   const startY = actor.pos.y;
   const startRotation = actor.rotation;
@@ -868,6 +949,9 @@ export function* flipCard(
   }
 
   const halfDuration = duration / 2;
+  if (emitter) {
+    emitter.emit("flipstarted", new CardFlippedEventStarted(actor, duration));
+  }
 
   while (elapsedTime < duration) {
     const deltaTime: number = yield;
@@ -906,6 +990,9 @@ export function* flipCard(
   actor.scale.y = startScaleY;
   actor.rotation = startRotation + Math.PI;
   actor.pos.y = startY;
+  if (emitter) {
+    emitter.emit("flipcompleted", new CardFlippedEventStarted(actor, duration));
+  }
 }
 export function* moveAndFlipCard(
   actor: Actor,
@@ -914,15 +1001,21 @@ export function* moveAndFlipCard(
     targetY: number;
     duration: number; // Total animation duration in ms
     flipDuration?: number; // Duration of flip animation in ms (defaults to half of duration)
+    emitter?: EventEmitter<CardEvents>;
   }
 ) {
   const startX = actor.pos.x;
   const startY = actor.pos.y;
   const startScaleX = actor.scale.x;
+  const emitter = ctx.emitter;
 
   const flipDur = ctx.flipDuration ?? ctx.duration / 2;
   let elapsedTime = 0;
   let flipped = false;
+
+  if (emitter) {
+    emitter.emit("moveAndFlipStarted", new CardMovedAndFlippedEventStarted(actor));
+  }
 
   while (elapsedTime < ctx.duration) {
     const deltaTime: number = yield; // Get elapsed time since last frame
@@ -965,8 +1058,10 @@ export function* moveAndFlipCard(
   actor.pos.y = ctx.targetY;
   actor.scale.x = startScaleX;
   actor.rotation = 0;
+  if (emitter) {
+    emitter.emit("moveAndFlipCompleted", new CardMovedAndFlippedEventCompleted(actor, ctx.duration));
+  }
 }
-
 export function* moveAndRotateCard(
   actor: Actor,
   ctx: {
@@ -974,6 +1069,7 @@ export function* moveAndRotateCard(
     targetY: number;
     duration: number; // Total animation duration in ms
     rotationSpeed?: number;
+    emitter?: EventEmitter<CardEvents>;
   }
 ) {
   const startPos = actor.pos.clone();
@@ -981,7 +1077,12 @@ export function* moveAndRotateCard(
   const targetVector = vec(ctx.targetX, ctx.targetY);
   const duration = ctx.duration;
   const rotationSpeed = (Math.PI * 2) / duration;
+  const emitter = ctx.emitter;
   let elapsedTime = 0;
+
+  if (emitter) {
+    emitter.emit("moveAndRotateStarted", new CardMovedAndRotatedEventStarted(actor));
+  }
 
   while (elapsedTime < duration) {
     const deltaTime: number = yield; // Get elapsed time since last frame
@@ -996,6 +1097,67 @@ export function* moveAndRotateCard(
   actor.pos.x = ctx.targetX;
   actor.pos.y = ctx.targetY;
   actor.rotation = startRotation;
+  if (emitter) {
+    emitter.emit("moveAndRotateCompleted", new CardMovedAndRotatedEventCompleted(actor, duration));
+  }
+}
+export class CoroutineAction implements Action {
+  id = nextActionId();
+  private _stopped = false;
+  private _coroutineInstance: CoroutineInstance | null = null;
+  private _actor: Actor | null = null;
+
+  /**
+   * @param coroutineFactory - Function that creates the coroutine generator
+   * @param ctx - Optional context object to pass to the coroutine
+   */
+  // eslint-disable-next-line no-unused-vars
+  constructor(private coroutineFactory: (actor: Actor, ctx?: any) => Generator<any, void, number>, private ctx?: any) {}
+
+  isComplete(actor: Actor): boolean {
+    // Store actor reference for update method
+    if (!this._actor) {
+      this._actor = actor;
+    }
+    // Complete when coroutine finishes or is stopped
+    return this._stopped || (this._coroutineInstance?.isComplete() ?? false);
+  }
+
+  update(): void {
+    if (!this._coroutineInstance && !this._stopped && this._actor) {
+      // Start the coroutine on first update
+      const engine = Engine.useEngine();
+      const actor = this._actor;
+      const ctx = this.ctx;
+
+      // Wrap in a CoroutineGenerator (no parameters)
+      const generator = () => this.coroutineFactory.call(actor, actor, ctx);
+
+      this._coroutineInstance = coroutine(actor, engine, generator, {
+        autostart: true,
+      });
+    }
+  }
+
+  reset(): void {
+    this._stopped = false;
+    if (this._coroutineInstance) {
+      this._coroutineInstance.cancel();
+      this._coroutineInstance = null;
+    }
+  }
+
+  stop(): void {
+    this._stopped = true;
+    if (this._coroutineInstance) {
+      this._coroutineInstance.cancel();
+    }
+  }
+}
+
+// eslint-disable-next-line no-unused-vars
+export function coroutineAction(coroutine: (actor: Actor, ctx?: any) => Generator<any, void, number>, ctx?: any): CoroutineAction {
+  return new CoroutineAction(coroutine, ctx);
 }
 
 // #endregion Card Actions
@@ -1004,43 +1166,325 @@ export function* moveAndRotateCard(
  * Card Events
  */
 
-// #region Card Events
+// #region Events
+
+//#region cardEvents
+export type CardEvents = {
+  cardCreated: CardCreatedEvent;
+  flipStarted: CardFlippedEventStarted;
+  flipCompleted: CardFlippedEventCompleted;
+  moveAndRotateStarted: CardMovedAndRotatedEventStarted;
+  moveAndRotateCompleted: CardMovedAndRotatedEventCompleted;
+  moveAndFlipStarted: CardMovedAndFlippedEventStarted;
+  moveAndFlipCompleted: CardMovedAndFlippedEventCompleted;
+  cardHovered: CardHoveredEvent;
+  cardUnhovered: CardUnhoveredEvent;
+  cardOwnerChanged: CardOwnerChangedEvent;
+  cardOwnerStatusChanged: CardOwnerStatusChangedEvent;
+};
+
+// eslint-disable-next-line no-redeclare
+export const CardEvents = {
+  cardCreated: "cardcreated",
+  flipStarted: "flipstarted",
+  flipCompleted: "flipcompleted",
+  moveAndRotateStarted: "moveandrotatestarted",
+  moveAndRotateCompleted: "moveandrotatecompleted",
+  moveAndFlipStarted: "moveandflipstarted",
+  moveAndFlipCompleted: "moveandflipcompleted",
+  cardHovered: "cardhovered",
+  cardUnhovered: "cardunhovered",
+  cardOwnerChanged: "cardownerchanged",
+  cardOwnerStatusChanged: "cardownerstatuschanged",
+} as const;
 
 //Events: card:created
-//Events: card:flipped
-//Events: card:played
-//Events: card:drawn
-//Events: card:discarded
-//Events: card:moved
-//Events: card:destroyed
-//Events: card:selected
+
+export class CardCreatedEvent extends GameEvent<Entity> {
+  card: Actor | ScreenElement;
+  constructor(card: Actor | ScreenElement) {
+    super();
+    this.card = card;
+  }
+}
+
+//Events: card:flipped:started
+export class CardFlippedEventStarted extends GameEvent<Entity> {
+  card: Actor | ScreenElement;
+  duration: number;
+  constructor(card: Actor | ScreenElement, duration: number) {
+    super();
+    this.card = card;
+    this.duration = duration;
+  }
+}
+
+//Events: card:flipped:completed
+export class CardFlippedEventCompleted extends GameEvent<Entity> {
+  card: Actor | ScreenElement;
+  constructor(card: Actor | ScreenElement) {
+    super();
+    this.card = card;
+  }
+}
+
+//Events: card:movedandrotated:started
+export class CardMovedAndRotatedEventStarted extends GameEvent<Entity> {
+  card: Actor | ScreenElement;
+  constructor(card: Actor | ScreenElement) {
+    super();
+    this.card = card;
+  }
+}
+
+//Events: card:movedandrotated:completed
+export class CardMovedAndRotatedEventCompleted extends GameEvent<Entity> {
+  card: Actor | ScreenElement;
+  duration: number;
+  constructor(card: Actor | ScreenElement, duration: number) {
+    super();
+    this.card = card;
+    this.duration = duration;
+  }
+}
+
+//Events: card:movedandflipped:started
+export class CardMovedAndFlippedEventStarted extends GameEvent<Entity> {
+  card: Actor | ScreenElement;
+  constructor(card: Actor | ScreenElement) {
+    super();
+    this.card = card;
+  }
+}
+
+//Events: card:movedandflipped:completed
+export class CardMovedAndFlippedEventCompleted extends GameEvent<Entity> {
+  card: Actor | ScreenElement;
+  duration: number;
+  constructor(card: Actor | ScreenElement, duration: number) {
+    super();
+    this.card = card;
+    this.duration = duration;
+  }
+}
+
 //Events: card:hovered
+export class CardHoveredEvent extends GameEvent<Entity> {
+  card: Actor | ScreenElement;
+  constructor(card: Actor | ScreenElement) {
+    super();
+    this.card = card;
+  }
+}
+
+//Events: card:unhovered
+export class CardUnhoveredEvent extends GameEvent<Entity> {
+  card: Actor | ScreenElement;
+  constructor(card: Actor | ScreenElement) {
+    super();
+    this.card = card;
+  }
+}
+
+//Events: card:ownerChanged
+export class CardOwnerChangedEvent extends GameEvent<Entity> {
+  card: Actor | ScreenElement;
+  previousOwnerId: number | null;
+  newOwnerId: number | null;
+  constructor(card: Actor | ScreenElement, previousOwnerId: number | null, newOwnerId: number | null) {
+    super();
+    this.card = card;
+    this.previousOwnerId = previousOwnerId;
+    this.newOwnerId = newOwnerId;
+  }
+}
+
+export class CardOwnerStatusChangedEvent extends GameEvent<Entity> {
+  card: Actor | ScreenElement;
+  previousStatus: CardStatusType;
+  newStatus: CardStatusType;
+  constructor(card: Actor | ScreenElement, previousStatus: keyof typeof CardStatus, newStatus: keyof typeof CardStatus) {
+    super();
+    this.card = card;
+    this.previousStatus = previousStatus;
+    this.newStatus = newStatus;
+  }
+}
+//#endregion cardEvents
 
 //Deck Events
+// #region deckEvents
+export type DeckEvents = {
+  created: DeckCreatedEvent;
+  shuffle: DeckShuffleEvent;
+  cardAdded: DeckCardAddedEvent;
+  cardRemoved: DeckCardRemovedEvent;
+  cleared: DeckClearedEvent;
+  cardDrawn: DeckCardDrawnEvent;
+};
+
+// eslint-disable-next-line no-redeclare
+export const DeckEvents = {
+  created: "created",
+  shuffle: "shuffle",
+  cardAdded: "cardadded",
+  cardRemoved: "cardremoved",
+  cleared: "cleared",
+  cardDrawn: "carddrawn",
+} as const;
+
+//Events: deck:created
+export class DeckCreatedEvent extends GameEvent<Entity> {
+  deck: Actor | ScreenElement;
+  constructor(deck: Actor | ScreenElement) {
+    super();
+    this.deck = deck;
+  }
+}
+
 //Events: deck:shuffled
+export class DeckShuffleEvent extends GameEvent<Entity> {
+  deck: Actor | ScreenElement;
+  numShuffles: number;
+  constructor(deck: Actor | ScreenElement, numShuffles: number) {
+    super();
+    this.deck = deck;
+    this.numShuffles = numShuffles;
+  }
+}
 //Events: deck:cardadded
+export class DeckCardAddedEvent extends GameEvent<Entity> {
+  card: Actor | ScreenElement;
+  constructor(card: Actor | ScreenElement) {
+    super();
+    this.card = card;
+  }
+}
 //Events: deck:cardremoved
+export class DeckCardRemovedEvent extends GameEvent<Entity> {
+  card: Actor | ScreenElement;
+  constructor(card: Actor | ScreenElement) {
+    super();
+    this.card = card;
+  }
+}
 //Events: deck:cleared
+export class DeckClearedEvent extends GameEvent<Entity> {
+  deck: Actor | ScreenElement;
+  constructor(deck: Actor | ScreenElement) {
+    super();
+    this.deck = deck;
+  }
+}
+
+//Events: deck:cardDrawn
+export class DeckCardDrawnEvent extends GameEvent<Entity> {
+  deck: Actor | ScreenElement;
+  cards: Actor[] | ScreenElement[];
+  numCards?: number;
+  constructor(deck: Actor | ScreenElement, cards: Actor[] | ScreenElement[], numCards: number) {
+    super();
+    this.deck = deck;
+    this.cards = cards;
+    this.numCards = numCards;
+  }
+}
+
+// #endregion deckEvents
 
 //Hand Events
-//Events: hand:cardadded
+// #region handEvents
+export type HandEvents = {
+  created: HandCreatedEvent;
+  cardAdded: HandCardAddedEvent;
+  cardRemoved: HandCardRemovedEvent;
+  cleared: HandClearedEvent;
+
+  handReordered: HandReorderedEvent;
+};
+
+// eslint-disable-next-line no-redeclare
+export const HandEvents = {
+  created: "created",
+  cardAdded: "cardadded",
+  cardRemoved: "cardremoved",
+  cleared: "cleared",
+  handReordered: "handreordered",
+} as const;
+
+//Events: hand:created
+export class HandCreatedEvent extends GameEvent<Entity> {
+  hand: Actor | ScreenElement;
+  constructor(hand: Actor | ScreenElement) {
+    super();
+    this.hand = hand;
+  }
+}
 //Events: hand:cardremoved
+export class HandCardRemovedEvent extends GameEvent<Entity> {
+  hand: Actor | ScreenElement;
+  card: Actor | ScreenElement;
+  constructor(hand: Actor | ScreenElement, card: Actor | ScreenElement) {
+    super();
+    this.hand = hand;
+    this.card = card;
+  }
+}
+
 //Events: hand:cleared
-//Events: hand:full
+export class HandClearedEvent extends GameEvent<Entity> {
+  hand: Actor | ScreenElement;
+  constructor(hand: Actor | ScreenElement) {
+    super();
+    this.hand = hand;
+  }
+}
+//Events: hand:cardadded
+export class HandCardAddedEvent extends GameEvent<Entity> {
+  hand: Actor | ScreenElement;
+  card: Actor | ScreenElement;
+  constructor(hand: Actor | ScreenElement, card: Actor | ScreenElement) {
+    super();
+    this.hand = hand;
+    this.card = card;
+  }
+}
+
+//Events: hand:reordered
+export class HandReorderedEvent extends GameEvent<Entity> {
+  hand: Actor | ScreenElement;
+  constructor(hand: Actor | ScreenElement) {
+    super();
+    this.hand = hand;
+  }
+}
+
+// #endregion handEvents
 
 //Table/Zone Events
-//Events: zone:cardadded
-//Events: zone:cardremoved
-//Events: zone:cleared
+//#region zoneEvents
 //Events: table:zonecreated
-//Events: table:zoneremoved
+export type ZoneEvents = {
+  created: ZoneCreatedEvent;
+};
 
-//Card Actions
-//Events: action:created
-//Events: action:started
-//Events: action:completed
+// eslint-disable-next-line no-redeclare
+export const ZoneEvents = {
+  created: "created",
+} as const;
 
-// #endregion
+export class ZoneCreatedEvent extends GameEvent<Entity> {
+  zone: Actor | ScreenElement;
+  table: Actor | ScreenElement;
+  constructor(zone: Actor | ScreenElement, table: Actor | ScreenElement) {
+    super();
+    this.zone = zone;
+    this.table = table;
+  }
+}
+// #endregion zoneEvents
+
+// #endregion events
 
 /**
  * Card System Graphics
@@ -1097,6 +1541,10 @@ export class DeckGraphics extends Graphic {
   }
 }
 
+/*
+ * Utility functions
+ */
+
 function qualifyEntity(ent: Entity): Actor | ScreenElement | null {
   if (ent instanceof Actor || ent instanceof ScreenElement) return ent as Actor | ScreenElement;
   return null;
@@ -1107,38 +1555,3 @@ function validateCard(ent: Entity): Actor | null {
   if (!(ent.has(CardComponent) || ent.has(PlayingCardComponent))) return null;
   return ent as Actor;
 }
-
-// function applyLocalScale(actor: Actor | ScreenElement, localScaleX: number, localScaleY: number, rotation: number) {
-//   // Create rotation matrix
-//   const cos = Math.cos(rotation);
-//   const sin = Math.sin(rotation);
-
-//   // Apply local scale then rotation: R * S
-//   // Where S = [sx, 0; 0, sy] and R = [cos, -sin; sin, cos]
-//   // Result: [sx*cos, -sy*sin; sx*sin, sy*cos]
-
-//   const scaleXCos = localScaleX * cos;
-//   const scaleXSin = localScaleX * sin;
-//   const scaleYCos = localScaleY * cos;
-//   const scaleYSin = localScaleY * sin;
-
-//   // Set the transform matrix directly
-//   actor.scale.x = Math.sqrt(scaleXCos * scaleXCos + scaleXSin * scaleXSin);
-//   actor.scale.y = Math.sqrt(scaleYCos * scaleYCos + scaleYSin * scaleYSin);
-
-//   // Adjust rotation to maintain direction
-//   if (localScaleX < 0) {
-//     actor.rotation = rotation + Math.PI;
-//   } else {
-//     actor.rotation = rotation;
-//   }
-// }
-
-// function applyLocalScale(actor: Actor | ScreenElement, localScaleX: number, localScaleY: number, originalRotation: number) {
-//   // Set scale in local space (when rotation is 0)
-//   actor.rotation = 0;
-//   actor.scale.x = localScaleX;
-//   actor.scale.y = localScaleY;
-//   // Re-apply rotation
-//   actor.rotation = originalRotation;
-// }

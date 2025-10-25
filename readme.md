@@ -559,7 +559,7 @@ function* moveAndFlipCard(
 **Usage:**
 
 ```typescript
-import { coroutineAction, moveAndFlipCard } from "./card-system";
+import { coroutineAction, moveAndFlipCard } from "./CardSystem";
 
 card.actions.runAction(
   coroutineAction(moveAndFlipCard, {
@@ -716,7 +716,7 @@ import {
   PlayingCardSuit,
   PlayingCardRank,
   CardResultStatus,
-} from "./card-system";
+} from "./CardSystem";
 
 const game = new Engine({ width: 800, height: 600 });
 
@@ -783,7 +783,7 @@ game.start();
 ### Card Movement with Animation
 
 ```typescript
-import { coroutineAction, moveAndFlipCard } from "./card-system";
+import { coroutineAction, moveAndFlipCard } from "./CardSystem";
 
 // Draw a card and animate it to hand
 const drawResult = deckComponent.drawCards(1);

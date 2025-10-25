@@ -43,7 +43,7 @@ import {
 } from "./card-system";
 ```
 
-card-system.ts is located in /src/components/
+CardSystem.ts is located in /src/components/
 
 ---
 

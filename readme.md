@@ -40,7 +40,7 @@ import {
   CardHandComponent,
   TableZoneComponent,
   // ... other imports
-} from "./card-system";
+} from "./CardSystem";
 ```
 
 CardSystem.ts is located in /src/components/

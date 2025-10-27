@@ -593,7 +593,7 @@ export class CardHandComponent extends Component {
   }
 
   public getNextCardPosition(): CardResult<CardLayout> {
-    if (this._cards.length + 1 >= this._maxCards) return { status: CardResultStatus.Error, message: "Hand is full." };
+    if (this._cards.length > this._maxCards) return { status: CardResultStatus.Error, message: "Hand is full." };
     const futureCardCount = this._cards.length + 1;
     if (this._spread === "flat")
       return { status: CardResultStatus.Success, value: this._calculateFlatPosition(this._cards.length, futureCardCount) };

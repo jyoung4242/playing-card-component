@@ -83,9 +83,6 @@ export class PlayingDeck extends Actor {
           .then(() => {
             handComponent.addCard(drawnCard);
             drawnCard.pos = nextPosition.sub((hand as PlayingHand).pos);
-            let drawnCardComponent = drawnCard.getCard();
-            drawnCardComponent.status = CardStatus.InHand;
-            drawnCardComponent.isOwnedBy = hand.id;
           });
         this.latchLeftClick = false;
       } else if (evt.button == PointerButton.Right) {

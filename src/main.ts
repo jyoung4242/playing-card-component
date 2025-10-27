@@ -25,13 +25,15 @@ await game.start(loader);
 
 let deck = new PlayingDeck(vec(150, 100));
 
-let zone1 = new LandingSpot("zone1", vec(425, 100), vec(120, 180), Resources.zone.toSprite());
-let zone2 = new LandingSpot("zone2", vec(650, 100), vec(120, 180), Resources.zone.toSprite());
+let zone1 = new LandingSpot("zone1", vec(350, 100), vec(120, 180), Resources.zone.toSprite());
+let zone2 = new LandingSpot("zone2", vec(500, 100), vec(120, 180), Resources.zone.toSprite());
+let zone3 = new LandingSpot("zone3", vec(650, 100), vec(120, 180), Resources.zone.toSprite());
 let hand = new PlayingHand(vec(400, 500), 600, 200, 4);
 let table = new PlayingTable();
 
 table.getTable().addZone("zone1", zone1);
 table.getTable().addZone("zone2", zone2);
+table.getTable().addZone("zone3", zone3);
 
 game.add(deck);
 game.add(table);

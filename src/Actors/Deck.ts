@@ -67,8 +67,6 @@ export class PlayingDeck extends Actor {
         scene.add(drawnCard);
 
         let handScreenPosition = handComponent.getNextCardPosition();
-        console.log("result: ", handScreenPosition);
-
         if (handScreenPosition.status == CardResultStatus.Error) return;
         let nextPosition = vec(handScreenPosition.value.x, handScreenPosition.value.y).add((hand as PlayingHand).pos);
 

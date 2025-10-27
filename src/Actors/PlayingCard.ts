@@ -1,4 +1,4 @@
-import { Actor, Engine, vec, Vector } from "excalibur";
+import { Actor, Engine, PointerButton, vec, Vector } from "excalibur";
 import {
   CardHandComponent,
   CardOptions,
@@ -54,45 +54,85 @@ export class PlayingCard extends Actor {
 
   onInitialize(): void {
     this.on("pointerup", evt => {
+      if (evt.button == PointerButton.Left) {
+        if (!this.scene) return;
+        let hand = this.scene.engine.currentScene.entities.find(e => e.has(CardHandComponent));
+        if (!hand) return;
+        //validate this card
+        if (this.pc.status === CardStatus.InHand && this.pc.isHovered && this.pc.isOwnedBy == hand.id) {
+          //get zone 2
+          let zone2 = this.scene.engine.currentScene.entities.find(e => e.has(TableZoneComponent) && e.name === "zone2");
+          let stack = (zone2 as LandingSpot).getStack();
+          let stackComponent = stack.get(TableStackComponent);
+          let currentCardPosition = this.globalPos.clone();
+          if (!zone2) return;
+          (hand as PlayingHand).getHand().removeCard(this);
+          this.pos = currentCardPosition;
+          (hand as PlayingHand).scene!.add(this);
+          this.z = 10000;
+          stackComponent.setDestination(this);
+          let stackPosition = stackComponent.getNextCardPosition().add((zone2 as LandingSpot).pos);
+
+          this.actions
+            .runAction(
+              coroutineAction(moveAndRotateCard, {
+                targetX: stackPosition.x - this.width / 2,
+                targetY: stackPosition.y - this.height / 2,
+                duration: 600,
+                rotationSpeed: Math.PI,
+              })
+            )
+            .toPromise()
+            .then(() => {
+              //add card to zone 2's stack
+              stackComponent.addCard(this);
+              this.rotation = 0;
+              let drawnCardComponent = this.getCard();
+              drawnCardComponent.status = CardStatus.InStack;
+              drawnCardComponent.isOwnedBy = stack.id;
+            });
+        }
+      } else if (evt.button == PointerButton.Right) {
+        if (!this.scene) return;
+        let hand = this.scene.engine.currentScene.entities.find(e => e.has(CardHandComponent));
+        if (!hand) return;
+        //validate this card
+        if (this.pc.status === CardStatus.InHand && this.pc.isHovered && this.pc.isOwnedBy == hand.id) {
+          //get zone 2
+          let zone3 = this.scene.engine.currentScene.entities.find(e => e.has(TableZoneComponent) && e.name === "zone3");
+          if (!zone3) return;
+          let zoneComponent = zone3.get(TableZoneComponent);
+          if (!zoneComponent) return;
+
+          let currentCardPosition = this.globalPos.clone();
+          (hand as PlayingHand).getHand().removeCard(this);
+          this.pos = currentCardPosition;
+          this.z = 10000;
+          (hand as PlayingHand).scene!.add(this);
+
+          zoneComponent.setDestination(this);
+          let zonePosition = (zone3 as LandingSpot).pos.clone();
+
+          this.actions
+            .runAction(
+              coroutineAction(moveAndRotateCard, {
+                targetX: zonePosition.x - this.width / 2,
+                targetY: zonePosition.y - this.height / 2,
+                duration: 600,
+                rotationSpeed: Math.PI,
+              })
+            )
+            .toPromise()
+            .then(() => {
+              //add card to zone 2's stack
+              zoneComponent.addCard(this);
+              this.rotation = 0;
+            });
+        }
+      }
+
       //play this card into the stack in zone 2
 
-      if (!this.scene) return;
-      let hand = this.scene.engine.currentScene.entities.find(e => e.has(CardHandComponent));
-      if (!hand) return;
-      //validate this card
-      if (this.pc.status === CardStatus.InHand && this.pc.isHovered && this.pc.isOwnedBy == hand.id) {
-        //get zone 2
-        let zone2 = this.scene.engine.currentScene.entities.find(e => e.has(TableZoneComponent) && e.name === "zone2");
-        let stack = (zone2 as LandingSpot).getStack();
-        let stackComponent = stack.get(TableStackComponent);
-        let currentCardPosition = this.globalPos.clone();
-        if (!zone2) return;
-        (hand as PlayingHand).getHand().removeCard(this);
-        this.pos = currentCardPosition;
-        (hand as PlayingHand).scene!.add(this);
-        this.z = 10000;
-        stackComponent.setDestination(this);
-        let stackPosition = stackComponent.getNextCardPosition().add((zone2 as LandingSpot).pos);
-
-        this.actions
-          .runAction(
-            coroutineAction(moveAndRotateCard, {
-              targetX: stackPosition.x - this.width / 2,
-              targetY: stackPosition.y - this.height / 2,
-              duration: 600,
-              rotationSpeed: Math.PI,
-            })
-          )
-          .toPromise()
-          .then(() => {
-            //add card to zone 2's stack
-            stackComponent.addCard(this);
-            this.rotation = 0;
-            let drawnCardComponent = this.getCard();
-            drawnCardComponent.status = CardStatus.InStack;
-            drawnCardComponent.isOwnedBy = stack.id;
-          });
-      }
       evt.cancel();
     });
 

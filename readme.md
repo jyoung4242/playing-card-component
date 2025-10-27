@@ -8,6 +8,7 @@ deck-building, trading card games, and more.
 - [Installation](#installation)
 - [Quick Start](#quick-start)
 - [Core Concepts](#core-concepts)
+  - [Card Result](#card-result-pattern)   
 - [Components](#components)
   - [CardComponent](#cardcomponent)
   - [PlayingCardComponent](#playingcardcomponent)
@@ -20,7 +21,9 @@ deck-building, trading card games, and more.
 - [Events System](#events-system)
 - [Type System](#type-system)
 - [Examples](#examples)
-- [API Reference](#api-reference)
+- [License](#license)
+- [Contributing](#contributing)
+- [Support](#support)
 
 ---
 
@@ -40,8 +43,10 @@ import {
   CardHandComponent,
   TableZoneComponent,
   // ... other imports
-} from "./card-system";
+} from "./CardSystem";
 ```
+
+CardSystem.ts is located in /src/components/
 
 ---
 
@@ -51,7 +56,7 @@ import {
 
 ```typescript
 import { Actor, Sprite, ImageSource } from "excalibur";
-import { CardComponent } from "./card-system";
+import { CardComponent } from "./CardSystem";
 
 // Load card images
 const cardFaceImage = new ImageSource("./card-face.png");
@@ -557,7 +562,7 @@ function* moveAndFlipCard(
 **Usage:**
 
 ```typescript
-import { coroutineAction, moveAndFlipCard } from "./card-system";
+import { coroutineAction, moveAndFlipCard } from "./CardSystem";
 
 card.actions.runAction(
   coroutineAction(moveAndFlipCard, {
@@ -714,7 +719,7 @@ import {
   PlayingCardSuit,
   PlayingCardRank,
   CardResultStatus,
-} from "./card-system";
+} from "./CardSystem";
 
 const game = new Engine({ width: 800, height: 600 });
 
@@ -781,7 +786,7 @@ game.start();
 ### Card Movement with Animation
 
 ```typescript
-import { coroutineAction, moveAndFlipCard } from "./card-system";
+import { coroutineAction, moveAndFlipCard } from "./CardSystem";
 
 // Draw a card and animate it to hand
 const drawResult = deckComponent.drawCards(1);

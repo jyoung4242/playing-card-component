@@ -336,11 +336,24 @@ export class CardDeckComponent extends Component {
     return this._cards[this._cards.length - 1];
   }
 
+  public setDestination(card: Actor): CardResult<Actor | ScreenElement> {
+    if (this._cards.length >= this._maxCards) {
+      return { status: CardResultStatus.Error, message: "Hand is full." };
+    }
+    this._cards.push(card);
+    return { status: CardResultStatus.Success, value: card };
+  }
+
   public addCard(card: Actor): CardResult<Actor | ScreenElement> {
+    if (!this.owner) return { status: CardResultStatus.Error, message: "Deck has no owner." };
     let validatedCard = validateCard(card);
     if (!validatedCard) return { status: CardResultStatus.Error, message: "Card is not a valid CardComponent." };
     if (this._cards.length >= this._maxCards) return { status: CardResultStatus.Error, message: "Deck is full." };
-    this._cards.push(validatedCard);
+    //if card isn't in cards, add it
+    if (this._cards.indexOf(validatedCard as Actor) === -1) this._cards.push(validatedCard as Actor);
+
+    (validatedCard as Actor).get(CardComponent).isOwnedBy = this.owner.id;
+    (validatedCard as Actor).get(CardComponent).isOwned = true;
     this.emitter.emit("cardAdded", new DeckCardAddedEvent(this.owner as Actor));
     return { status: CardResultStatus.Success, value: validatedCard };
   }
@@ -367,6 +380,8 @@ export class CardDeckComponent extends Component {
       this.owner.removeChild(card);
     }
     this._cards.splice(index, 1);
+    (card as Actor).get(CardComponent).isOwned = false;
+    (card as Actor).get(CardComponent).isOwnedBy = null;
     this.emitter.emit("cardRemoved", new DeckCardRemovedEvent(this.owner as Actor));
     return { status: CardResultStatus.Success, value: card };
   }
@@ -384,6 +399,8 @@ export class CardDeckComponent extends Component {
       let validatedCard = validateCard(drawnCard);
       if (!validatedCard) return { status: CardResultStatus.Error, message: "Card is not a valid CardComponent." };
       drawn.push(drawnCard);
+      (drawnCard as Actor).get(CardComponent).isOwned = false;
+      (drawnCard as Actor).get(CardComponent).isOwnedBy = null;
     }
     this.emitter.emit("cardsDrawn", new DeckCardDrawnEvent(this.owner as Actor, drawn, numCards));
     return { status: CardResultStatus.Success, value: drawn };
@@ -482,6 +499,7 @@ export class CardHandComponent extends Component {
 
   public addCard(card: Actor): CardResult<Actor> {
     //validate card
+    if (!this.owner) return { status: CardResultStatus.Error, message: "Hand is not attached to an entity." };
     let validatedCard = validateCard(card);
     if (!validatedCard) return { status: CardResultStatus.Error, message: "Card is not a valid CardComponent." };
 
@@ -491,6 +509,9 @@ export class CardHandComponent extends Component {
       this._dirtyFlag = true;
     }
 
+    if (this._cards.indexOf(validatedCard as Actor) === -1) this._cards.push(validatedCard as Actor);
+    (validatedCard as Actor).get(CardComponent).isOwnedBy = this.owner.id;
+    (validatedCard as Actor).get(CardComponent).isOwned = true;
     this.emitter.emit("cardAdded", new HandCardAddedEvent(this.owner as Actor, card));
     return { status: CardResultStatus.Success, value: card };
   }
@@ -524,6 +545,8 @@ export class CardHandComponent extends Component {
     // Remove parentage if card is child of hand
     if (card.parent === this.owner) this.owner.removeChild(card);
     this._cards.splice(index, 1);
+    (card as Actor).get(CardComponent).isOwned = false;
+    (card as Actor).get(CardComponent).isOwnedBy = null;
     this._dirtyFlag = true;
     this.emitter.emit("cardRemoved", new HandCardRemovedEvent(this.owner as Actor, card));
     return { status: CardResultStatus.Success, value: card };
@@ -793,9 +816,11 @@ export class TableStackComponent extends Component {
     }
 
     if (!this.owner) return { status: CardResultStatus.Error, message: "Stack has no owner." };
-
     this.owner.addChild(card);
     card.pos = this.getNextCardPosition();
+    if (this._cards.indexOf(validatedCard as Actor) === -1) this._cards.push(validatedCard as Actor);
+    validatedCard.get(CardComponent).isOwned = true;
+    validatedCard.get(CardComponent).isOwnedBy = this.owner.id;
     this.dirtyFlag = true;
     return { status: CardResultStatus.Success, value: card };
   }
@@ -823,6 +848,7 @@ export class TableStackComponent extends Component {
 
   public removeCard(card: Actor): CardResult<Actor | ScreenElement> {
     //validate card
+    if (!this.owner) return { status: CardResultStatus.Error, message: "Stack has no owner." };
     let validatedCard = validateCard(card);
     if (!validatedCard) return { status: CardResultStatus.Error, message: "Card is not a valid CardComponent." };
 
@@ -832,6 +858,8 @@ export class TableStackComponent extends Component {
     // remove child if card is child of stack
     if (card.parent === this.owner) this.owner?.removeChild(card);
     this._cards.splice(index, 1);
+    validatedCard.get(CardComponent).isOwned = true;
+    validatedCard.get(CardComponent).isOwnedBy = this.owner.id;
     this.dirtyFlag = true;
     return { status: CardResultStatus.Success, value: card };
   }
